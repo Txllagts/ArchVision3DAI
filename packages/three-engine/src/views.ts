@@ -1,4 +1,5 @@
 import type { SceneDocument, Vector3 } from "@archvision/types";
+import { getSelectableBounds } from "@archvision/shared";
 
 /**
  * Encuadres de camara.
@@ -65,9 +66,10 @@ export function computeSceneBounds(scene: SceneDocument): SceneBounds {
   }
 
   for (const roof of scene.roofs) {
-    for (const point of roof.outline) include(point.x, point.y);
-    const floor = scene.floors.find((item) => item.id === roof.floorId);
-    maxY = Math.max(maxY, (floor?.elevation ?? 0) + roof.baseHeight + 2);
+    const bounds = getSelectableBounds("roof", roof, scene);
+    include(bounds.min.x, bounds.min.z);
+    include(bounds.max.x, bounds.max.z);
+    maxY = Math.max(maxY, bounds.max.y);
   }
 
   if (!Number.isFinite(minX)) return EMPTY_BOUNDS;

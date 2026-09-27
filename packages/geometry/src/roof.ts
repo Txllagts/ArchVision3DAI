@@ -5,7 +5,7 @@ import {
   BufferGeometryUtils,
 } from "./three-utils";
 import type { Roof, Vector2 } from "@archvision/types";
-import { degToRad } from "@archvision/shared";
+import { degToRad, roofOutlineCenter } from "@archvision/shared";
 import { applyBoxUv } from "./uv";
 
 /**
@@ -252,6 +252,8 @@ function buildRoofGeometry(roof: Roof): BufferGeometry {
  */
 export function createRoofGeometry(roof: Roof): BufferGeometry {
   const geometry = buildRoofGeometry(roof);
+  const center = roofOutlineCenter(roof);
+  geometry.translate(-center.x, 0, -center.y);
   applyBoxUv(geometry);
   return geometry;
 }

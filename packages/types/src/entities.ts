@@ -241,6 +241,10 @@ export interface Roof {
   kind: RoofKind;
   /** Contorno en planta (XZ), en metros. */
   outline: Vector2[];
+  /** Desplazamiento en planta respecto al centro del contorno original. */
+  position?: Vector2;
+  /** Orientacion alrededor del eje vertical, en radianes. */
+  rotationY?: number;
   /** Pendiente en grados. */
   slopeDeg: number;
   /** Cota de arranque respecto al nivel. */

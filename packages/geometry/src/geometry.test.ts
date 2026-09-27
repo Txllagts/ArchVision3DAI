@@ -206,16 +206,26 @@ describe("roof", () => {
   it("la cubierta a dos aguas se eleva con la pendiente", () => {
     const flat = createRoofGeometry({ ...base, kind: "flat" });
     const gable = createRoofGeometry({ ...base, kind: "gable" });
+    const rotatedGable = createRoofGeometry({
+      ...base,
+      kind: "gable",
+      rotationY: Math.PI / 2,
+    });
 
     flat.computeBoundingBox();
     gable.computeBoundingBox();
+    rotatedGable.computeBoundingBox();
 
     expect(gable.boundingBox!.max.y).toBeGreaterThan(flat.boundingBox!.max.y);
-    // Con alero de 0.6 m la cubierta desborda el contorno.
-    expect(gable.boundingBox!.max.x).toBeCloseTo(10.6, 3);
+    // La geometria se centra para poder girar sin recalcular su huella.
+    expect(gable.boundingBox!.min.x).toBeCloseTo(-5.6, 3);
+    expect(gable.boundingBox!.max.x).toBeCloseTo(5.6, 3);
+    expect(rotatedGable.boundingBox!.min.x).toBeCloseTo(gable.boundingBox!.min.x, 3);
+    expect(rotatedGable.boundingBox!.max.x).toBeCloseTo(gable.boundingBox!.max.x, 3);
 
     flat.dispose();
     gable.dispose();
+    rotatedGable.dispose();
   });
 });
 

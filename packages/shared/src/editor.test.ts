@@ -136,16 +136,202 @@ describe("command-reducer", () => {
   it("mueve objetos en el plano", () => {
     const scene = sceneWithRoom();
     const wall = scene.walls[0]!;
+    const column = {
+      id: "column-move-test",
+      floorId: wall.floorId,
+      name: "Columna de prueba",
+      position: { x: 2, y: 3 },
+      shape: "rect" as const,
+      width: 0.3,
+      depth: 0.3,
+      height: 2.6,
+      rotationY: 0,
+      visible: true,
+      locked: false,
+    };
+    scene.columns.push(column);
+    const roof = {
+      id: "roof-move-test",
+      floorId: wall.floorId,
+      name: "Techo de prueba",
+      kind: "flat" as const,
+      outline: [
+        { x: 0, y: 0 },
+        { x: 4, y: 0 },
+        { x: 4, y: 3 },
+        { x: 0, y: 3 },
+      ],
+      slopeDeg: 0,
+      baseHeight: 2.6,
+      overhang: 0.5,
+      thickness: 0.2,
+      visible: true,
+      locked: false,
+    };
+    scene.roofs.push(roof);
 
     const next = applyCommand(scene, {
       type: "TRANSFORM_OBJECTS",
-      ids: [wall.id],
+      ids: [wall.id, column.id, roof.id],
       translate: { x: 1, y: 0, z: 2 },
     });
 
     const moved = next.walls.find((item) => item.id === wall.id)!;
     expect(moved.start).toEqual({ x: 1, y: 2 });
     expect(moved.end).toEqual({ x: 6, y: 2 });
+    expect(next.columns[0]?.position).toEqual({ x: 3, y: 5 });
+    expect(next.roofs[0]?.position).toEqual({ x: 1, y: 2 });
+    expect(next.roofs[0]?.outline).toEqual(roof.outline);
+  });
+
+  it("rota paredes y cubiertas alrededor de su centro", () => {
+    const scene = sceneWithRoom();
+    const wall = scene.walls[0]!;
+    const roof = {
+      id: "roof-rotation-test",
+      floorId: wall.floorId,
+      name: "Cubierta de prueba",
+      kind: "flat" as const,
+      outline: [
+        { x: 0, y: 0 },
+        { x: 2, y: 0 },
+        { x: 2, y: 2 },
+        { x: 0, y: 2 },
+      ],
+      slopeDeg: 0,
+      baseHeight: 2.6,
+      overhang: 0,
+      thickness: 0.2,
+      visible: true,
+      locked: false,
+    };
+    scene.roofs.push(roof);
+
+    const rotatedWall = applyCommand(scene, {
+      type: "TRANSFORM_OBJECTS",
+      ids: [wall.id],
+      rotateY: Math.PI / 2,
+    });
+    const rotatedRoof = applyCommand(scene, {
+      type: "TRANSFORM_OBJECTS",
+      ids: [roof.id],
+      rotateY: Math.PI / 2,
+    });
+
+    expect(rotatedWall.walls[0]?.start.x).toBeCloseTo(2.5);
+    expect(rotatedWall.walls[0]?.start.y).toBeCloseTo(2.5);
+    expect(rotatedWall.walls[0]?.end.x).toBeCloseTo(2.5);
+    expect(rotatedWall.walls[0]?.end.y).toBeCloseTo(-2.5);
+    expect(rotatedRoof.roofs[0]?.outline).toEqual(roof.outline);
+    expect(rotatedRoof.roofs[0]?.rotationY).toBeCloseTo(Math.PI / 2);
+  });
+
+  it("rota un grupo alrededor de un pivote comun", () => {
+    const scene = createDefaultScene();
+    const floorId = scene.floors[0]!.id;
+    scene.columns.push(
+      {
+        id: "column-a",
+        floorId,
+        name: "Columna A",
+        position: { x: 0.1, y: 0 },
+        shape: "rect",
+        width: 0.3,
+        depth: 0.3,
+        height: 2.6,
+        rotationY: 0,
+        visible: true,
+        locked: false,
+      },
+      {
+        id: "column-b",
+        floorId,
+        name: "Columna B",
+        position: { x: 2.2, y: 0 },
+        shape: "rect",
+        width: 0.3,
+        depth: 0.3,
+        height: 2.6,
+        rotationY: 0,
+        visible: true,
+        locked: false,
+      },
+    );
+
+    const rotated = applyCommand(scene, {
+      type: "TRANSFORM_OBJECTS",
+      ids: ["column-a", "column-b"],
+      rotateY: Math.PI / 2,
+    });
+
+    expect(rotated.columns[0]?.position.x).toBeCloseTo(1.15);
+    expect(rotated.columns[0]?.position.y).toBeCloseTo(1.05);
+    expect(rotated.columns[1]?.position.x).toBeCloseTo(1.15);
+    expect(rotated.columns[1]?.position.y).toBeCloseTo(-1.05);
+    expect(rotated.columns[0]?.rotationY).toBeCloseTo(Math.PI / 2);
+
+    const fullTurn = applyCommand(scene, {
+      type: "TRANSFORM_OBJECTS",
+      ids: ["column-a", "column-b"],
+      rotateY: Math.PI * 2,
+    });
+    expect(fullTurn.columns[0]?.position).toEqual(scene.columns[0]?.position);
+  });
+
+  it("no cambia escala ni inclinacion al girar un mueble", () => {
+    const scene = createDefaultScene();
+    const floorId = scene.floors[0]!.id;
+    const furniture = {
+      id: "furniture-rotation-test",
+      floorId,
+      name: "Mueble de prueba",
+      catalogId: "sofa-3-seat",
+      position: { x: 1, y: 0, z: 2 },
+      rotation: { x: 0.1, y: 0.2, z: -0.1 },
+      scale: { x: 1.2, y: 0.8, z: 1.1 },
+      visible: true,
+      locked: false,
+    };
+    scene.furniture.push(furniture);
+
+    const rotated = applyCommand(scene, {
+      type: "TRANSFORM_OBJECTS",
+      ids: [furniture.id],
+      rotateY: Math.PI / 3,
+    });
+
+    expect(rotated.furniture[0]?.scale).toEqual(furniture.scale);
+    expect(rotated.furniture[0]?.rotation.x).toBe(furniture.rotation.x);
+    expect(rotated.furniture[0]?.rotation.z).toBe(furniture.rotation.z);
+    expect(rotated.furniture[0]?.rotation.y).toBeCloseTo(furniture.rotation.y + Math.PI / 3);
+  });
+
+  it("gira la pared anfitriona al rotar un vano", () => {
+    const scene = sceneWithRoom();
+    const wall = scene.walls[0]!;
+    scene.doors.push({
+      id: "door-rotation-test",
+      wallId: wall.id,
+      floorId: wall.floorId,
+      name: "Puerta de prueba",
+      kind: "single",
+      offset: 2,
+      width: 0.9,
+      height: 2.05,
+      openingDirection: "inward-left",
+      visible: true,
+      locked: false,
+    });
+
+    const rotated = applyCommand(scene, {
+      type: "TRANSFORM_OBJECTS",
+      ids: ["door-rotation-test"],
+      rotateY: Math.PI / 2,
+    });
+
+    expect(rotated.walls[0]?.start.x).toBeCloseTo(2);
+    expect(rotated.walls[0]?.start.y).toBeCloseTo(2);
+    expect(rotated.doors[0]?.wallId).toBe(wall.id);
   });
 });
 
