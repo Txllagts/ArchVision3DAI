@@ -1,8 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
-import { Grid, OrbitControls } from "@react-three/drei";
+import { Grid, Html, OrbitControls } from "@react-three/drei";
+import { RotateCw } from "lucide-react";
 import {
   computeSceneBounds,
   environmentPreset,
@@ -12,9 +21,25 @@ import {
   snapPoint,
   type CameraPose,
 } from "@archvision/three-engine";
-import { Object3D, Vector2 as ThreeVector2 } from "three";
+import { Camera, Mesh, MOUSE, Object3D, Vector2 as ThreeVector2 } from "three";
+import {
+  Box3,
+  Frustum,
+  Matrix4,
+  Plane,
+  Raycaster,
+  Vector3 as ThreeVector3,
+} from "three";
 import type { Floor, SceneDocument, Vector2 } from "@archvision/types";
+import {
+  getSelectionPivot,
+  getSelectableBounds,
+  getTransformTargetIds,
+  type SelectableEntities,
+  type SelectableEntityKind,
+} from "@archvision/shared";
 import { useEditorStore, type ToolId } from "@/lib/editor/store";
+import { readRotationStepDegrees } from "@/lib/editor/rotation-preference";
 import {
   ColumnObject,
   FurnitureObject,
@@ -203,7 +228,9 @@ interface WorkPlaneProps {
   tool: ToolId;
   onPoint: (point: Vector2, event: ThreeEvent<PointerEvent>) => void;
   onMove: (point: Vector2) => void;
-  onClearSelection: () => void;
+  onMarqueeStart: (point: Vector2) => void;
+  onMarqueeMove: (point: Vector2) => void;
+  onMarqueeEnd: (point: Vector2, additive: boolean) => void;
 }
 
 /** Plano de trabajo invisible: convierte el puntero en coordenadas de planta. */
@@ -212,28 +239,54 @@ function WorkPlane({
   tool,
   onPoint,
   onMove,
-  onClearSelection,
+  onMarqueeStart,
+  onMarqueeMove,
+  onMarqueeEnd,
 }: WorkPlaneProps) {
+  const planeRef = useRef<Mesh>(null);
+  const controls = useThree((state) => state.controls) as OrbitControlsLike | null;
+
+  useFrame(({ camera }) => {
+    const plane = planeRef.current;
+    if (!plane) return;
+    const target = controls?.target ?? camera.position;
+    plane.position.set(target.x, elevation, target.z);
+  });
+
   return (
     <mesh
+      ref={planeRef}
       rotation={[-Math.PI / 2, 0, 0]}
-      position={[0, elevation, 0]}
       receiveShadow
       onPointerMove={(event) => {
         onMove({ x: event.point.x, y: event.point.z });
+        onMarqueeMove({ x: event.nativeEvent.clientX, y: event.nativeEvent.clientY });
+      }}
+      onPointerUp={(event) => {
+        onMarqueeEnd(
+          { x: event.nativeEvent.clientX, y: event.nativeEvent.clientY },
+          event.nativeEvent.shiftKey,
+        );
       }}
       onPointerDown={(event) => {
+        if (tool === "select" && event.nativeEvent.button !== 0) return;
         event.stopPropagation();
-        // El pincel sobre el vacio no hace nada: pintar el plano de trabajo no
-        // significa nada y borrar la seleccion sorprenderia.
-        if (tool === "select" || tool === "paint") {
-          if (tool === "select") onClearSelection();
+        if (tool === "select") {
+          const target = event.target as unknown as {
+            setPointerCapture: (pointerId: number) => void;
+          };
+          target.setPointerCapture(event.pointerId);
+          onMarqueeStart({ x: event.nativeEvent.clientX, y: event.nativeEvent.clientY });
+          return;
+        }
+        // El pincel sobre el vacio no hace nada.
+        if (tool === "paint") {
           return;
         }
         onPoint({ x: event.point.x, y: event.point.z }, event);
       }}
     >
-      <planeGeometry args={[400, 400]} />
+      <planeGeometry args={[100_000, 100_000]} />
       <meshStandardMaterial color="#20242c" roughness={1} metalness={0} />
     </mesh>
   );
@@ -245,12 +298,18 @@ function FloorContent({
   selection,
   hoveredId,
   handlers,
+  transformPreview,
 }: {
   floor: Floor;
   scene: SceneDocument;
   selection: Set<string>;
   hoveredId: string | null;
-  handlers: { onPick: (id: string, additive: boolean) => void; onHover: (id: string | null) => void };
+  handlers: {
+    onPick: (id: string, additive: boolean) => void;
+    onDragStart: (id: string, event: ThreeEvent<PointerEvent>) => void;
+    onHover: (id: string | null) => void;
+  };
+  transformPreview: TransformPreview | null;
 }) {
   if (!floor.visible) return null;
 
@@ -259,84 +318,90 @@ function FloorContent({
       {scene.slabs
         .filter((slab) => slab.floorId === floor.id)
         .map((slab) => (
-          <SlabObject
-            key={slab.id}
-            slab={slab}
-            scene={scene}
-            elevation={floor.elevation}
-            selection={selection}
-            hoveredId={hoveredId}
-            handlers={handlers}
-          />
+          <PreviewTransform key={slab.id} id={slab.id} preview={transformPreview}>
+            <SlabObject
+              slab={slab}
+              scene={scene}
+              elevation={floor.elevation}
+              selection={selection}
+              hoveredId={hoveredId}
+              handlers={handlers}
+            />
+          </PreviewTransform>
         ))}
 
       {scene.walls
         .filter((wall) => wall.floorId === floor.id)
         .map((wall) => (
-          <WallObject
-            key={wall.id}
-            wall={wall}
-            scene={scene}
-            elevation={floor.elevation}
-            selection={selection}
-            hoveredId={hoveredId}
-            handlers={handlers}
-          />
+          <PreviewTransform key={wall.id} id={wall.id} preview={transformPreview}>
+            <WallObject
+              wall={wall}
+              scene={scene}
+              elevation={floor.elevation}
+              selection={selection}
+              hoveredId={hoveredId}
+              handlers={handlers}
+            />
+          </PreviewTransform>
         ))}
 
       {scene.columns
         .filter((column) => column.floorId === floor.id)
         .map((column) => (
-          <ColumnObject
-            key={column.id}
-            column={column}
-            scene={scene}
-            elevation={floor.elevation}
-            selection={selection}
-            hoveredId={hoveredId}
-            handlers={handlers}
-          />
+          <PreviewTransform key={column.id} id={column.id} preview={transformPreview}>
+            <ColumnObject
+              column={column}
+              scene={scene}
+              elevation={floor.elevation}
+              selection={selection}
+              hoveredId={hoveredId}
+              handlers={handlers}
+            />
+          </PreviewTransform>
         ))}
 
       {scene.stairs
         .filter((stair) => stair.floorId === floor.id)
         .map((stair) => (
-          <StairObject
-            key={stair.id}
-            stair={stair}
-            scene={scene}
-            elevation={floor.elevation}
-            selection={selection}
-            hoveredId={hoveredId}
-            handlers={handlers}
-          />
+          <PreviewTransform key={stair.id} id={stair.id} preview={transformPreview}>
+            <StairObject
+              stair={stair}
+              scene={scene}
+              elevation={floor.elevation}
+              selection={selection}
+              hoveredId={hoveredId}
+              handlers={handlers}
+            />
+          </PreviewTransform>
         ))}
 
       {scene.roofs
         .filter((roof) => roof.floorId === floor.id)
         .map((roof) => (
-          <RoofObject
-            key={roof.id}
-            roof={roof}
-            scene={scene}
-            elevation={floor.elevation}
-            selection={selection}
-            hoveredId={hoveredId}
-            handlers={handlers}
-          />
+          <PreviewTransform key={roof.id} id={roof.id} preview={transformPreview}>
+            <RoofObject
+              roof={roof}
+              scene={scene}
+              elevation={floor.elevation}
+              selection={selection}
+              hoveredId={hoveredId}
+              handlers={handlers}
+            />
+          </PreviewTransform>
         ))}
 
       {scene.furniture
         .filter((item) => item.floorId === floor.id)
         .map((item) => (
-          <FurnitureObject
-            key={item.id}
-            item={item}
-            elevation={floor.elevation}
-            selection={selection}
-            hoveredId={hoveredId}
-            handlers={handlers}
-          />
+          <PreviewTransform key={item.id} id={item.id} preview={transformPreview}>
+            <FurnitureObject
+              item={item}
+              elevation={floor.elevation}
+              selection={selection}
+              hoveredId={hoveredId}
+              handlers={handlers}
+            />
+          </PreviewTransform>
         ))}
     </group>
   );
@@ -376,7 +441,152 @@ function WallPreview({
   );
 }
 
+function frustumForRect(
+  rect: { minX: number; minY: number; maxX: number; maxY: number },
+  camera: Camera,
+  viewport: DOMRect,
+) : Frustum {
+  const left = (rect.minX / viewport.width) * 2 - 1;
+  const right = (rect.maxX / viewport.width) * 2 - 1;
+  const top = 1 - (rect.minY / viewport.height) * 2;
+  const bottom = 1 - (rect.maxY / viewport.height) * 2;
+  const crop = new Matrix4().set(
+    2 / (right - left), 0, 0, -(right + left) / (right - left),
+    0, 2 / (top - bottom), 0, -(top + bottom) / (top - bottom),
+    0, 0, 1, 0,
+    0, 0, 0, 1,
+  );
+  camera.updateMatrixWorld();
+  const projectionView = crop
+    .multiply(camera.projectionMatrix)
+    .multiply(camera.matrixWorldInverse);
+  return new Frustum().setFromProjectionMatrix(projectionView);
+}
+
+function boundsContainedInRect(
+  bounds: ReturnType<typeof getSelectableBounds>,
+  rect: { minX: number; minY: number; maxX: number; maxY: number },
+  camera: Camera,
+  viewport: DOMRect,
+): boolean {
+  camera.updateMatrixWorld();
+  for (const x of [bounds.min.x, bounds.max.x]) {
+    for (const y of [bounds.min.y, bounds.max.y]) {
+      for (const z of [bounds.min.z, bounds.max.z]) {
+        const point = new ThreeVector3(x, y, z).project(camera);
+        if (point.z < -1 || point.z > 1) return false;
+        const screenX = ((point.x + 1) / 2) * viewport.width;
+        const screenY = ((1 - point.y) / 2) * viewport.height;
+        if (
+          screenX < rect.minX ||
+          screenX > rect.maxX ||
+          screenY < rect.minY ||
+          screenY > rect.maxY
+        ) {
+          return false;
+        }
+      }
+    }
+  }
+  return true;
+}
+
+interface RotationGesture {
+  pointerId: number;
+  previousAngle: number;
+  totalAngle: number;
+  snappedAngle: number;
+  stepRadians: number;
+  ids: string[];
+  pivot: { x: number; y: number; z: number };
+}
+
+interface MoveGesture {
+  pointerId: number;
+  ids: string[];
+  pivot: { x: number; y: number; z: number };
+  origin: Vector2;
+  delta: Vector2;
+  startClient: Vector2;
+}
+
+interface TransformPreview {
+  pivot: { x: number; y: number; z: number };
+  angle: number;
+  translation?: Vector2;
+  targetIds: ReadonlySet<string>;
+}
+
+function PreviewTransform({
+  id,
+  preview,
+  children,
+}: {
+  id: string;
+  preview: TransformPreview | null;
+  children: ReactNode;
+}) {
+  if (
+    !preview ||
+    !preview.targetIds.has(id) ||
+    (preview.angle === 0 && !preview.translation)
+  ) {
+    return <>{children}</>;
+  }
+  const { x, y, z } = preview.pivot;
+  return (
+    <group
+      position={[
+        x + (preview.translation?.x ?? 0),
+        y,
+        z + (preview.translation?.y ?? 0),
+      ]}
+      rotation={[0, preview.angle, 0]}
+    >
+      <group position={[-x, -y, -z]}>{children}</group>
+    </group>
+  );
+}
+
+function worldPointOnHorizontalPlane(
+  clientX: number,
+  clientY: number,
+  elevation: number,
+  camera: Camera,
+  canvas: HTMLCanvasElement,
+): Vector2 | null {
+  const rect = canvas.getBoundingClientRect();
+  const ndc = new ThreeVector2(
+    ((clientX - rect.left) / rect.width) * 2 - 1,
+    -((clientY - rect.top) / rect.height) * 2 + 1,
+  );
+  const raycaster = new Raycaster();
+  raycaster.setFromCamera(ndc, camera);
+  const hit = raycaster.ray.intersectPlane(
+    new Plane(new ThreeVector3(0, 1, 0), -elevation),
+    new ThreeVector3(),
+  );
+  return hit ? { x: hit.x, y: hit.z } : null;
+}
+
+function screenAngleAroundPivot(
+  clientX: number,
+  clientY: number,
+  pivot: { x: number; y: number; z: number },
+  camera: Camera,
+  canvas: HTMLCanvasElement,
+): number {
+  camera.updateMatrixWorld();
+  const rect = canvas.getBoundingClientRect();
+  const projected = new ThreeVector3(pivot.x, pivot.y, pivot.z).project(camera);
+  const centerX = rect.left + ((projected.x + 1) / 2) * rect.width;
+  const centerY = rect.top + ((1 - projected.y) / 2) * rect.height;
+  return Math.atan2(clientY - centerY, clientX - centerX);
+}
+
 function SceneContent() {
+  const { camera, gl } = useThree();
+  const controls = useThree((state) => state.controls) as OrbitControlsLike | null;
   const scene = useEditorStore((state) => state.scene);
   const selectionList = useEditorStore((state) => state.selection);
   const hoveredId = useEditorStore((state) => state.hoveredId);
@@ -389,12 +599,40 @@ function SceneContent() {
   const dispatch = useEditorStore((state) => state.dispatch);
   const select = useEditorStore((state) => state.select);
   const setHovered = useEditorStore((state) => state.setHovered);
-  const clearSelection = useEditorStore((state) => state.clearSelection);
 
   const [drawStart, setDrawStart] = useState<Vector2 | null>(null);
   const [cursor, setCursor] = useState<Vector2 | null>(null);
+  const [marquee, setMarquee] = useState<{
+    origin: Vector2;
+    current: Vector2;
+  } | null>(null);
+  const [rotationGesture, setRotationGesture] = useState<RotationGesture | null>(null);
+  const [moveGesture, setMoveGesture] = useState<MoveGesture | null>(null);
+  const moveGestureRef = useRef<MoveGesture | null>(null);
 
   const selection = useMemo(() => new Set(selectionList), [selectionList]);
+  const rotationPivot = useMemo(
+    () => getSelectionPivot(scene, selectionList),
+    [scene, selectionList],
+  );
+  const transformPreview = useMemo<TransformPreview | null>(() => {
+    if (moveGesture) {
+      return {
+        pivot: moveGesture.pivot,
+        angle: 0,
+        translation: moveGesture.delta,
+        targetIds: getTransformTargetIds(scene, moveGesture.ids),
+      };
+    }
+    if (rotationGesture) {
+      return {
+        pivot: rotationGesture.pivot,
+        angle: rotationGesture.snappedAngle,
+        targetIds: getTransformTargetIds(scene, rotationGesture.ids),
+      };
+    }
+    return null;
+  }, [moveGesture, rotationGesture, scene]);
   const bounds = useMemo(() => computeSceneBounds(scene), [scene]);
 
   const activeFloor =
@@ -428,12 +666,55 @@ function SceneContent() {
           useEditorStore.getState().paintMaterial(id);
           return;
         }
+        const current = useEditorStore.getState().selection;
+        if (!additive && current.length > 1 && current.includes(id)) return;
         select([id], additive);
       },
-      onHover: (id: string | null) => setHovered(id),
+      onDragStart: (id: string, event: ThreeEvent<PointerEvent>) => {
+        if (tool !== "select" || event.nativeEvent.button !== 0) return;
+        const selectedIds = useEditorStore.getState().selection;
+        const ids = selectedIds.includes(id) ? [...selectedIds] : [id];
+        const transformTargets = getTransformTargetIds(scene, ids);
+        const pivot = getSelectionPivot(scene, ids);
+        if (!pivot || transformTargets.size === 0) return;
+        const origin = worldPointOnHorizontalPlane(
+          event.nativeEvent.clientX,
+          event.nativeEvent.clientY,
+          pivot.y,
+          camera,
+          gl.domElement,
+        );
+        if (!origin) return;
+        event.nativeEvent.preventDefault();
+        const gesture: MoveGesture = {
+          pointerId: event.pointerId,
+          ids,
+          pivot,
+          origin,
+          delta: { x: 0, y: 0 },
+          startClient: {
+            x: event.nativeEvent.clientX,
+            y: event.nativeEvent.clientY,
+          },
+        };
+        moveGestureRef.current = gesture;
+        setMoveGesture(gesture);
+      },
+      onHover: (id: string | null) => {
+        setHovered(id);
+        gl.domElement.style.cursor =
+          moveGesture ? "grabbing" : tool === "select" && id ? "grab" : "";
+      },
     }),
-    [select, setHovered, tool],
+    [camera, gl, moveGesture, scene, select, setHovered, tool],
   );
+
+  useEffect(() => {
+    gl.domElement.style.cursor = tool === "select" ? "default" : "crosshair";
+    return () => {
+      gl.domElement.style.cursor = "";
+    };
+  }, [gl, tool]);
 
   const handlePoint = useCallback(
     (raw: Vector2) => {
@@ -514,9 +795,254 @@ function SceneContent() {
     [activeFloor, applySnap, dispatch, drawStart, floorWalls, furnitureCatalogId, tool],
   );
 
+  const toCanvasPoint = useCallback(
+    (point: Vector2): Vector2 => {
+      const rect = gl.domElement.getBoundingClientRect();
+      return { x: point.x - rect.left, y: point.y - rect.top };
+    },
+    [gl],
+  );
+
+  const handleMarqueeStart = useCallback(
+    (point: Vector2) => {
+      const origin = toCanvasPoint(point);
+      setMarquee({ origin, current: origin });
+    },
+    [toCanvasPoint],
+  );
+
+  const handleMarqueeMove = useCallback(
+    (point: Vector2) => {
+      const current = toCanvasPoint(point);
+      setMarquee((drag) => (drag ? { ...drag, current } : null));
+    },
+    [toCanvasPoint],
+  );
+
+  const handleMarqueeEnd = useCallback(
+    (point: Vector2, additive: boolean) => {
+      if (!marquee) {
+        setMarquee(null);
+        return;
+      }
+      const current = toCanvasPoint(point);
+      const rect = {
+        minX: Math.min(marquee.origin.x, current.x),
+        minY: Math.min(marquee.origin.y, current.y),
+        maxX: Math.max(marquee.origin.x, current.x),
+        maxY: Math.max(marquee.origin.y, current.y),
+      };
+      if (rect.maxX - rect.minX < 2 || rect.maxY - rect.minY < 2) {
+        select([], additive);
+        setMarquee(null);
+        return;
+      }
+      const viewport = gl.domElement.getBoundingClientRect();
+      const crossing = current.x < marquee.origin.x;
+      const frustum = crossing ? frustumForRect(rect, camera, viewport) : null;
+      const visibleFloorIds = new Set(
+        scene.floors.filter((floor) => floor.visible).map((floor) => floor.id),
+      );
+      const ids: string[] = [];
+      const collect = <Kind extends SelectableEntityKind>(
+        kind: Kind,
+        entities: readonly SelectableEntities[Kind][],
+      ) => {
+        for (const entity of entities) {
+          if (
+            !visibleFloorIds.has(entity.floorId) ||
+            ("visible" in entity && !entity.visible)
+          ) {
+            continue;
+          }
+          const bounds = getSelectableBounds(kind, entity, scene);
+          const box = new Box3(
+            new ThreeVector3(bounds.min.x, bounds.min.y, bounds.min.z),
+            new ThreeVector3(bounds.max.x, bounds.max.y, bounds.max.z),
+          );
+          const matches = crossing
+            ? frustum?.intersectsBox(box) ?? false
+            : boundsContainedInRect(bounds, rect, camera, viewport);
+          if (matches) ids.push(entity.id);
+        }
+      };
+      collect("wall", scene.walls);
+      collect("door", scene.doors);
+      collect("window", scene.windows);
+      collect("opening", scene.openings);
+      collect("column", scene.columns);
+      collect("stair", scene.stairs);
+      collect("roof", scene.roofs);
+      collect("slab", scene.slabs);
+      collect("furniture", scene.furniture);
+      select(ids, additive);
+      setMarquee(null);
+    },
+    [camera, gl, marquee, scene, select, toCanvasPoint],
+  );
+
+  const handleRotationPointerDown = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      if (event.button !== 0 || !rotationPivot || selectionList.length === 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      const stepRadians = (readRotationStepDegrees() * Math.PI) / 180;
+      setRotationGesture({
+        pointerId: event.pointerId,
+        previousAngle: screenAngleAroundPivot(
+          event.clientX,
+          event.clientY,
+          rotationPivot,
+          camera,
+          gl.domElement,
+        ),
+        totalAngle: 0,
+        snappedAngle: 0,
+        stepRadians,
+        ids: [...selectionList],
+        pivot: rotationPivot,
+      });
+    },
+    [camera, gl, rotationPivot, selectionList],
+  );
+
+  const handleRotationPointerMove = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      if (!rotationGesture || event.pointerId !== rotationGesture.pointerId) return;
+      const currentAngle = screenAngleAroundPivot(
+        event.clientX,
+        event.clientY,
+        rotationGesture.pivot,
+        camera,
+        gl.domElement,
+      );
+      const angleDelta = Math.atan2(
+        Math.sin(currentAngle - rotationGesture.previousAngle),
+        Math.cos(currentAngle - rotationGesture.previousAngle),
+      );
+      const totalAngle = rotationGesture.totalAngle + angleDelta;
+      const snappedAngle = event.shiftKey
+        ? -Math.round(totalAngle / rotationGesture.stepRadians) * rotationGesture.stepRadians
+        : -totalAngle;
+      setRotationGesture({
+        ...rotationGesture,
+        previousAngle: currentAngle,
+        totalAngle,
+        snappedAngle,
+      });
+    },
+    [camera, gl, rotationGesture],
+  );
+
+  const handleRotationPointerUp = useCallback(
+    (event: ReactPointerEvent<HTMLButtonElement>) => {
+      if (!rotationGesture || event.pointerId !== rotationGesture.pointerId) return;
+      const releaseAngle = screenAngleAroundPivot(
+        event.clientX,
+        event.clientY,
+        rotationGesture.pivot,
+        camera,
+        gl.domElement,
+      );
+      const finalDelta = Math.atan2(
+        Math.sin(releaseAngle - rotationGesture.previousAngle),
+        Math.cos(releaseAngle - rotationGesture.previousAngle),
+      );
+      const totalAngle = rotationGesture.totalAngle + finalDelta;
+      const snappedAngle = event.shiftKey
+        ? -Math.round(totalAngle / rotationGesture.stepRadians) * rotationGesture.stepRadians
+        : -totalAngle;
+      if (Math.abs(snappedAngle) > 1e-9) {
+        dispatch({
+          type: "TRANSFORM_OBJECTS",
+          ids: rotationGesture.ids,
+          rotateY: snappedAngle,
+        });
+      }
+      setRotationGesture(null);
+    },
+    [camera, dispatch, gl, rotationGesture],
+  );
+
+  useEffect(() => {
+    const handlePointerMove = (event: PointerEvent) => {
+      const gesture = moveGestureRef.current;
+      if (!gesture || event.pointerId !== gesture.pointerId) return;
+      const point = worldPointOnHorizontalPlane(
+        event.clientX,
+        event.clientY,
+        gesture.pivot.y,
+        camera,
+        gl.domElement,
+      );
+      if (!point) return;
+      const nextGesture = {
+        ...gesture,
+        delta: {
+          x: point.x - gesture.origin.x,
+          y: point.y - gesture.origin.y,
+        },
+      };
+      moveGestureRef.current = nextGesture;
+      setMoveGesture(nextGesture);
+      gl.domElement.style.cursor = "grabbing";
+    };
+
+    const finishMove = (event: PointerEvent) => {
+      const gesture = moveGestureRef.current;
+      if (!gesture || event.pointerId !== gesture.pointerId) return;
+      const point = worldPointOnHorizontalPlane(
+        event.clientX,
+        event.clientY,
+        gesture.pivot.y,
+        camera,
+        gl.domElement,
+      );
+      const delta = point
+        ? { x: point.x - gesture.origin.x, y: point.y - gesture.origin.y }
+        : gesture.delta;
+      const pixelDistance = Math.hypot(
+        event.clientX - gesture.startClient.x,
+        event.clientY - gesture.startClient.y,
+      );
+      if (pixelDistance >= 3 && (Math.abs(delta.x) > 1e-6 || Math.abs(delta.y) > 1e-6)) {
+        dispatch({
+          type: "TRANSFORM_OBJECTS",
+          ids: gesture.ids,
+          translate: { x: delta.x, y: 0, z: delta.y },
+        });
+      }
+      moveGestureRef.current = null;
+      setMoveGesture(null);
+      gl.domElement.style.cursor = tool === "select" ? "default" : "crosshair";
+    };
+
+    const cancelMove = (event: PointerEvent) => {
+      const gesture = moveGestureRef.current;
+      if (!gesture || event.pointerId !== gesture.pointerId) return;
+      moveGestureRef.current = null;
+      setMoveGesture(null);
+      gl.domElement.style.cursor = tool === "select" ? "default" : "crosshair";
+    };
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", finishMove);
+    window.addEventListener("pointercancel", cancelMove);
+    return () => {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", finishMove);
+      window.removeEventListener("pointercancel", cancelMove);
+    };
+  }, [camera, dispatch, gl, tool]);
+
   // Al cambiar de herramienta se abandona el trazado en curso.
   useEffect(() => {
     setDrawStart(null);
+    setMarquee(null);
+    setRotationGesture(null);
+    moveGestureRef.current = null;
+    setMoveGesture(null);
   }, [tool, activeFloorId]);
 
   return (
@@ -547,8 +1073,106 @@ function SceneContent() {
         tool={tool}
         onPoint={handlePoint}
         onMove={(point) => setCursor(applySnap(point))}
-        onClearSelection={clearSelection}
+        onMarqueeStart={handleMarqueeStart}
+        onMarqueeMove={handleMarqueeMove}
+        onMarqueeEnd={handleMarqueeEnd}
       />
+
+      {tool === "select" && rotationPivot ? (
+        <group position={[rotationPivot.x, rotationPivot.y, rotationPivot.z]}>
+          <Html center pointerEvents="none">
+            <div
+              style={{
+                position: "absolute",
+                left: -32,
+                top: -104,
+                width: 64,
+                height: 64,
+                pointerEvents: "none",
+              }}
+            >
+              <div
+                style={{
+                  position: "absolute",
+                  inset: 0,
+                  border: "1px solid rgba(34, 211, 238, 0.7)",
+                  borderRadius: "50%",
+                  pointerEvents: "none",
+                }}
+              />
+              <button
+                type="button"
+                aria-label="Arrastrar para girar la seleccion"
+                title="Arrastra para girar libremente; mantén Shift para ajustar al incremento"
+                onPointerDown={handleRotationPointerDown}
+                onPointerMove={handleRotationPointerMove}
+                onPointerUp={handleRotationPointerUp}
+                onPointerCancel={() => setRotationGesture(null)}
+                style={{
+                  position: "absolute",
+                  left: 16,
+                  top: 16,
+                  width: 32,
+                  height: 32,
+                  display: "grid",
+                  placeItems: "center",
+                  border: "1px solid #22d3ee",
+                  borderRadius: "50%",
+                  background: "#101923",
+                  color: "#67e8f9",
+                  cursor: rotationGesture ? "grabbing" : "grab",
+                  pointerEvents: "auto",
+                  touchAction: "none",
+                  transform: `rotate(${(rotationGesture?.totalAngle ?? 0) * (180 / Math.PI)}deg) translateY(-29px) rotate(${-(rotationGesture?.totalAngle ?? 0) * (180 / Math.PI)}deg)`,
+                }}
+              >
+                <RotateCw size={16} aria-hidden />
+              </button>
+              {rotationGesture ? (
+                <span
+                  style={{
+                    position: "absolute",
+                    left: 70,
+                    top: 25,
+                    minWidth: 42,
+                    color: "#e6fbff",
+                    font: "12px ui-monospace, monospace",
+                    pointerEvents: "none",
+                    textShadow: "0 1px 3px #000",
+                  }}
+                >
+                  {(rotationGesture.snappedAngle * (180 / Math.PI)).toFixed(1)}°
+                </span>
+              ) : null}
+            </div>
+          </Html>
+        </group>
+      ) : null}
+
+      {marquee ? (
+        <group
+          position={
+            controls
+              ? [controls.target.x, controls.target.y, controls.target.z]
+              : [0, 0, 0]
+          }
+        >
+          <Html fullscreen pointerEvents="none">
+            <div
+              style={{
+                position: "absolute",
+                left: Math.min(marquee.origin.x, marquee.current.x),
+                top: Math.min(marquee.origin.y, marquee.current.y),
+                width: Math.abs(marquee.current.x - marquee.origin.x),
+                height: Math.abs(marquee.current.y - marquee.origin.y),
+                border: "1px solid #22d3ee",
+                background: "rgba(34, 211, 238, 0.12)",
+                pointerEvents: "none",
+              }}
+            />
+          </Html>
+        </group>
+      ) : null}
 
       {scene.floors.map((floor) => (
         <FloorContent
@@ -558,6 +1182,7 @@ function SceneContent() {
           selection={selection}
           hoveredId={hoveredId}
           handlers={handlers}
+          transformPreview={transformPreview}
         />
       ))}
 
@@ -575,6 +1200,7 @@ function SceneContent() {
 }
 
 export function Viewport3D() {
+  const tool = useEditorStore((state) => state.tool);
   const [contextLost, setContextLost] = useState(false);
   // Cambiar esta clave reconstruye el lienzo desde cero cuando el usuario pide
   // reintentar tras una perdida de contexto.
@@ -606,6 +1232,7 @@ export function Viewport3D() {
 
     <div
       className="absolute inset-0"
+      onContextMenu={(event) => event.preventDefault()}
       onDragOver={(event) => {
         // Sin `preventDefault` el navegador rechaza la caida y nunca llega el
         // evento `drop`.
@@ -658,6 +1285,12 @@ export function Viewport3D() {
         makeDefault
         enableDamping
         dampingFactor={0.12}
+        enablePan={tool !== "select"}
+        mouseButtons={{
+          LEFT: tool === "select" ? MOUSE.PAN : MOUSE.ROTATE,
+          MIDDLE: MOUSE.ROTATE,
+          RIGHT: MOUSE.PAN,
+        }}
         maxPolarAngle={Math.PI / 2.02}
         minDistance={1}
         maxDistance={400}

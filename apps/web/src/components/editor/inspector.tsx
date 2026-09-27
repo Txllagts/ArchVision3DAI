@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { RotateCcw, RotateCw } from "lucide-react";
 import type { SceneDocument, UnitSystem } from "@archvision/types";
 import {
   distance2,
@@ -8,6 +9,10 @@ import {
   formatLength,
   parseLengthInput,
 } from "@archvision/shared";
+import {
+  readRotationStepDegrees,
+  writeRotationStepDegrees,
+} from "@/lib/editor/rotation-preference";
 import { useEditorStore } from "@/lib/editor/store";
 
 /**
@@ -162,11 +167,86 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
   );
 }
 
+function RotationControls({
+  ids,
+  degrees,
+  onDegreesChange,
+}: {
+  ids: string[];
+  degrees: string;
+  onDegreesChange: (value: string) => void;
+}) {
+  const dispatch = useEditorStore((state) => state.dispatch);
+
+  const rotate = (direction: -1 | 1) => {
+    const amount = Number(degrees);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 360) return;
+    dispatch({
+      type: "TRANSFORM_OBJECTS",
+      ids,
+      rotateY: (direction * amount * Math.PI) / 180,
+    });
+  };
+
+  return (
+    <div className="border-b border-line pb-1">
+      <SectionTitle>Rotacion</SectionTitle>
+      <div className="flex items-center justify-between gap-2 px-3 py-1.5">
+        <label htmlFor="rotation-step" className="text-[11px] text-ink-subtle">
+          Grados por giro
+        </label>
+        <div className="flex items-center gap-1">
+          <input
+            id="rotation-step"
+            type="number"
+            min={1}
+            max={360}
+            step={1}
+            value={degrees}
+            onChange={(event) => onDegreesChange(event.target.value)}
+            className="h-7 w-16 rounded border border-line bg-surface px-2 text-right font-mono text-xs text-ink"
+          />
+          <span className="text-[10px] text-ink-subtle">°</span>
+          <button
+            type="button"
+            onClick={() => rotate(-1)}
+            title="Girar seleccion a la izquierda"
+            aria-label="Girar seleccion a la izquierda"
+            className="grid size-7 place-items-center rounded border border-line text-ink-muted hover:bg-surface-2 hover:text-ink"
+          >
+            <RotateCcw className="size-3.5" aria-hidden />
+          </button>
+          <button
+            type="button"
+            onClick={() => rotate(1)}
+            title="Girar seleccion a la derecha"
+            aria-label="Girar seleccion a la derecha"
+            className="grid size-7 place-items-center rounded border border-line text-ink-muted hover:bg-surface-2 hover:text-ink"
+          >
+            <RotateCw className="size-3.5" aria-hidden />
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function Inspector() {
   const scene = useEditorStore((state) => state.scene);
   const units = useEditorStore((state) => state.units);
   const selection = useEditorStore((state) => state.selection);
   const dispatch = useEditorStore((state) => state.dispatch);
+  const [rotationDegrees, setRotationDegrees] = useState("90");
+  const [rotationPreferenceLoaded, setRotationPreferenceLoaded] = useState(false);
+
+  useEffect(() => {
+    setRotationDegrees(String(readRotationStepDegrees()));
+    setRotationPreferenceLoaded(true);
+  }, []);
+
+  useEffect(() => {
+    if (rotationPreferenceLoaded) writeRotationStepDegrees(rotationDegrees);
+  }, [rotationDegrees, rotationPreferenceLoaded]);
 
   const id = selection[0];
 
@@ -185,6 +265,11 @@ export function Inspector() {
     return (
       <div className="border-t border-line">
         <SectionTitle>Inspector</SectionTitle>
+        <RotationControls
+          ids={selection}
+          degrees={rotationDegrees}
+          onDegreesChange={setRotationDegrees}
+        />
         <p className="px-3 py-4 text-[11px] text-ink-muted">
           {selection.length} objetos seleccionados. Usa Supr para eliminarlos.
         </p>
@@ -207,6 +292,11 @@ export function Inspector() {
       <SectionTitle>Inspector</SectionTitle>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
+        <RotationControls
+          ids={selection}
+          degrees={rotationDegrees}
+          onDegreesChange={setRotationDegrees}
+        />
         {wall ? (
           <>
             <TextRow label="Tipo" value="Pared" />
@@ -493,22 +583,6 @@ export function Inspector() {
             <TextRow label="Tipo" value="Mobiliario" />
             <TextRow label="Nombre" value={furniture.name} />
             <TextRow label="Catalogo" value={furniture.catalogId} />
-            <NumberRow
-              label="Rotacion"
-              value={Math.round((furniture.rotation.y * 180) / Math.PI)}
-              min={-360}
-              max={360}
-              step={15}
-              suffix="°"
-              onCommit={(degrees) => {
-                const target = (degrees * Math.PI) / 180;
-                dispatch({
-                  type: "TRANSFORM_OBJECTS",
-                  ids: [furniture.id],
-                  rotateY: target - furniture.rotation.y,
-                });
-              }}
-            />
           </>
         ) : null}
       </div>

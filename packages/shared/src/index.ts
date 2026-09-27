@@ -1,6 +1,7 @@
 export * from "./units";
 export * from "./ids";
 export * from "./geometry2d";
+export * from "./selectable-bounds";
 export * from "./defaults";
 export * from "./scene-factory";
 export * from "./demo-house";

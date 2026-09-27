@@ -5,9 +5,9 @@ qué queda pendiente.
 
 | Implementado | Pendiente |
 | --- | --- |
-| Visor 3D (React Three Fiber), vista 2D en SVG y modo dividido | Gizmos de transformación con arrastre en 3D |
+| Visor 3D (React Three Fiber), vista 2D en SVG y modo dividido | Gizmos de traslacion y escala en 3D |
 | Paredes con vanos booleanos, losas, cubiertas, escaleras, columnas | Recorrido en primera persona y modo presentación |
-| Snapping, medición, detección de habitaciones, analítica | Exportadores GLB/OBJ/STL (fase 8) |
+| Marquee 2D/3D, selección múltiple, giro agrupado en 3D y snapping | Exportadores GLB/OBJ/STL (fase 8) |
 | Comandos, undo/redo, autoguardado con control de revisión | Colaboración en tiempo real (fase 10) |
 | Materiales PBR con textura procedural, arrastrar/soltar y pincel | Modelos GLB de mobiliario y texturas subidas por el usuario |
 
@@ -82,6 +82,9 @@ Ambos editores leen y escriben el mismo `SceneDocument`; no hay conversión ni
 copia. Un cambio en planta se refleja en 3D en el siguiente fotograma, y una
 modificación estructural en 3D actualiza la planta. El modo `Split` muestra
 plano a la izquierda y modelo a la derecha.
+
+La selección, los bounds compartidos y el giro interactivo se explican paso a
+paso en [Selección y transformaciones](SELECTION_AND_TRANSFORMS.md).
 
 ## Atajos
 
