@@ -64,6 +64,34 @@ export function useEditorShortcuts(options: { onSave: () => void }) {
 
       if (isTypingTarget(event.target)) return;
 
+      if (ctrl && event.key.toLowerCase() === "a") {
+        event.preventDefault();
+        const floorId = store.activeFloorId ?? store.scene.floors[0]?.id;
+        if (!floorId) return;
+        const collections = [
+          store.scene.walls,
+          store.scene.doors,
+          store.scene.windows,
+          store.scene.openings,
+          store.scene.columns,
+          store.scene.stairs,
+          store.scene.roofs,
+          store.scene.slabs,
+          store.scene.rooms,
+          store.scene.furniture,
+        ];
+        const ids = collections
+          .flat()
+          .filter(
+            (entity) =>
+              entity.floorId === floorId &&
+              (!("visible" in entity) || entity.visible),
+          )
+          .map((entity) => entity.id);
+        store.select(ids, false);
+        return;
+      }
+
       switch (event.key.toLowerCase()) {
         case "v":
           store.setTool("select");
