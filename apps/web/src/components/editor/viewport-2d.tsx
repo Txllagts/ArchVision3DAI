@@ -13,9 +13,14 @@ import {
 import type { SceneDocument, Vector2, Wall } from "@archvision/types";
 import {
   distance2,
+  containsRect2D,
   formatArea,
   formatLength,
+  getSelectableBounds,
+  intersectsRect2D,
   polygonCentroid,
+  type SelectableEntities,
+  type SelectableEntityKind,
 } from "@archvision/shared";
 import { findWallAt, snapPoint } from "@archvision/three-engine";
 import { useEditorStore } from "@/lib/editor/store";
@@ -44,9 +49,11 @@ type DragState =
   | {
       kind: "wall";
       wallId: string;
+      ids: string[];
       origin: Vector2;
       delta: Vector2;
     }
+  | { kind: "marquee"; origin: Vector2; current: Vector2 }
   | null;
 
 const MIN_SCALE = 4;
@@ -293,7 +300,19 @@ export function Viewport2D() {
           return;
         }
         default: {
-          // Herramienta de seleccion: clic en vacio limpia la seleccion.
+          if (tool === "select") {
+            const target = event.target;
+            const isBackground =
+              target === event.currentTarget ||
+              (target instanceof SVGRectElement &&
+                target.dataset.marqueeBackground === "true");
+            if (!isBackground) return;
+            event.currentTarget.setPointerCapture(event.pointerId);
+            setDrag({ kind: "marquee", origin: raw, current: raw });
+            return;
+          }
+          if (tool === "paint") return;
+          // El fondo conserva el gesto de seleccion por ventana incluso sin objetos debajo.
           clearSelection();
         }
       }
@@ -346,12 +365,17 @@ export function Viewport2D() {
           ...drag,
           delta: { x: raw.x - drag.origin.x, y: raw.y - drag.origin.y },
         });
+        return;
+      }
+
+      if (drag.kind === "marquee") {
+        setDrag({ ...drag, current: raw });
       }
     },
     [applySnap, drag, toWorld],
   );
 
-  const handlePointerUp = useCallback(() => {
+  const handlePointerUp = useCallback((event: ReactPointerEvent<SVGSVGElement>) => {
     if (!drag) return;
 
     if (drag.kind === "node") {
@@ -365,13 +389,59 @@ export function Viewport2D() {
     if (drag.kind === "wall" && (drag.delta.x !== 0 || drag.delta.y !== 0)) {
       dispatch({
         type: "TRANSFORM_OBJECTS",
-        ids: [drag.wallId],
+        ids: drag.ids,
         translate: { x: drag.delta.x, y: 0, z: drag.delta.y },
       });
     }
 
+    if (drag.kind === "marquee") {
+      const current = toWorld(event.clientX, event.clientY);
+      const marquee = {
+        minX: Math.min(drag.origin.x, current.x),
+        minY: Math.min(drag.origin.y, current.y),
+        maxX: Math.max(drag.origin.x, current.x),
+        maxY: Math.max(drag.origin.y, current.y),
+      };
+      const crossing = current.x < drag.origin.x;
+      const ids: string[] = [];
+      const collect = <Kind extends SelectableEntityKind>(
+        kind: Kind,
+        entities: readonly SelectableEntities[Kind][],
+      ) => {
+        for (const entity of entities) {
+          if (
+            entity.floorId !== activeFloor?.id ||
+            ("visible" in entity && !entity.visible)
+          ) {
+            continue;
+          }
+          const bounds = getSelectableBounds(kind, entity, scene);
+          const objectRect = {
+            minX: bounds.min.x,
+            minY: bounds.min.z,
+            maxX: bounds.max.x,
+            maxY: bounds.max.z,
+          };
+          const matches = crossing
+            ? intersectsRect2D(objectRect, marquee)
+            : containsRect2D(marquee, objectRect);
+          if (matches) {
+            ids.push(entity.id);
+          }
+        }
+      };
+      collect("wall", walls);
+      collect("door", scene.doors);
+      collect("window", scene.windows);
+      collect("opening", scene.openings);
+      collect("column", columns);
+      collect("room", rooms);
+      collect("furniture", furniture);
+      select(ids, event.shiftKey);
+    }
+
     setDrag(null);
-  }, [dispatch, drag]);
+  }, [activeFloor?.id, columns, dispatch, drag, furniture, rooms, scene, select, toWorld, walls]);
 
   const handleWheel = useCallback(
     (event: ReactWheelEvent<SVGSVGElement>) => {
@@ -405,7 +475,7 @@ export function Viewport2D() {
         ? { start: drag.preview, end: wall.end }
         : { start: wall.start, end: drag.preview };
     }
-    if (drag?.kind === "wall" && drag.wallId === wall.id) {
+    if (drag?.kind === "wall" && drag.ids.includes(wall.id)) {
       return {
         start: { x: wall.start.x + drag.delta.x, y: wall.start.y + drag.delta.y },
         end: { x: wall.end.x + drag.delta.x, y: wall.end.y + drag.delta.y },
@@ -417,7 +487,8 @@ export function Viewport2D() {
   const openingMarkers = useMemo(() => {
     const markers: Array<{
       id: string;
-      kind: "door" | "window";
+      wallId: string;
+      kind: "door" | "window" | "opening";
       center: Vector2;
       angle: number;
       width: number;
@@ -426,7 +497,7 @@ export function Viewport2D() {
 
     const push = (
       id: string,
-      kind: "door" | "window",
+      kind: "door" | "window" | "opening",
       wall: Wall,
       offset: number,
       width: number,
@@ -435,6 +506,7 @@ export function Viewport2D() {
       const t = Math.min(1, Math.max(0, offset / length));
       markers.push({
         id,
+        wallId: wall.id,
         kind,
         center: {
           x: wall.start.x + (wall.end.x - wall.start.x) * t,
@@ -456,9 +528,13 @@ export function Viewport2D() {
       const wall = walls.find((item) => item.id === window.wallId);
       if (wall) push(window.id, "window", wall, window.offset, window.width);
     }
+    for (const opening of scene.openings) {
+      const wall = walls.find((item) => item.id === opening.wallId);
+      if (wall) push(opening.id, "opening", wall, opening.offset, opening.width);
+    }
 
     return markers;
-  }, [scene.doors, scene.windows, walls]);
+  }, [scene.doors, scene.openings, scene.windows, walls]);
 
   return (
     <div
@@ -497,7 +573,12 @@ export function Viewport2D() {
           </pattern>
         </defs>
 
-        <rect width={size.width} height={size.height} fill="url(#plan-grid)" />
+        <rect
+          width={size.width}
+          height={size.height}
+          fill="url(#plan-grid)"
+          data-marquee-background="true"
+        />
 
         {/*
           Plano importado.
@@ -557,7 +638,9 @@ export function Viewport2D() {
                 fill={isSelected ? "rgba(34,211,238,0.16)" : "rgba(125,211,252,0.07)"}
                 stroke="rgba(125,211,252,0.25)"
                 strokeWidth={1}
+                style={{ cursor: tool === "select" ? "pointer" : "default" }}
                 onPointerDown={(event) => {
+                  if (event.button !== 0) return;
                   if (tool === "paint") {
                     event.stopPropagation();
                     paintMaterial(room.id);
@@ -618,11 +701,17 @@ export function Viewport2D() {
                   }
                   if (tool !== "select" || event.button !== 0) return;
                   event.stopPropagation();
-                  select([wall.id], event.shiftKey);
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                  const wasSelected = selection.has(wall.id);
+                  const ids = wasSelected && selectionList.length > 1
+                    ? [...selectionList]
+                    : [wall.id];
+                  if (!wasSelected || event.shiftKey) select([wall.id], event.shiftKey);
                   const raw = toWorld(event.clientX, event.clientY);
                   setDrag({
                     kind: "wall",
                     wallId: wall.id,
+                    ids,
                     origin: raw,
                     delta: { x: 0, y: 0 },
                   });
@@ -644,6 +733,7 @@ export function Viewport2D() {
                         strokeWidth={1.5}
                         style={{ cursor: "grab" }}
                         onPointerDown={(event) => {
+                          if (event.button !== 0) return;
                           event.stopPropagation();
                           setDrag({
                             kind: "node",
@@ -675,7 +765,14 @@ export function Viewport2D() {
 
         {/* Vanos */}
         {openingMarkers.map((marker) => {
-          const [cx, cy] = toScreen(marker.center);
+          const [baseX, baseY] = toScreen(marker.center);
+          const offset =
+            drag?.kind === "wall" &&
+            (drag.ids.includes(marker.id) || drag.ids.includes(marker.wallId))
+              ? { x: drag.delta.x * view.scale, y: drag.delta.y * view.scale }
+              : { x: 0, y: 0 };
+          const cx = baseX + offset.x;
+          const cy = baseY + offset.y;
           const width = Math.max(4, marker.width * view.scale);
           const thickness = Math.max(3, marker.thickness * view.scale);
           const isSelected = selection.has(marker.id);
@@ -693,12 +790,15 @@ export function Viewport2D() {
                   ? "#22d3ee"
                   : marker.kind === "door"
                     ? "#f0b26b"
-                    : "#8fd3e8"
+                    : marker.kind === "window"
+                      ? "#8fd3e8"
+                      : "#b8a98a"
               }
               stroke="#0d1117"
               strokeWidth={1}
+              style={{ cursor: tool === "select" ? "pointer" : "default" }}
               onPointerDown={(event) => {
-                if (tool !== "select") return;
+                if (tool !== "select" || event.button !== 0) return;
                 event.stopPropagation();
                 select([marker.id], event.shiftKey);
               }}
@@ -708,7 +808,13 @@ export function Viewport2D() {
 
         {/* Columnas */}
         {columns.map((column) => {
-          const [cx, cy] = toScreen(column.position);
+          const [baseX, baseY] = toScreen(column.position);
+          const offset =
+            drag?.kind === "wall" && drag.ids.includes(column.id)
+              ? { x: drag.delta.x * view.scale, y: drag.delta.y * view.scale }
+              : { x: 0, y: 0 };
+          const cx = baseX + offset.x;
+          const cy = baseY + offset.y;
           const width = Math.max(4, column.width * view.scale);
           const depth = Math.max(4, column.depth * view.scale);
           return (
@@ -719,8 +825,9 @@ export function Viewport2D() {
               width={width}
               height={depth}
               fill={selection.has(column.id) ? "#22d3ee" : "#9aa4b1"}
+              style={{ cursor: tool === "select" ? "pointer" : "default" }}
               onPointerDown={(event) => {
-                if (tool !== "select") return;
+                if (tool !== "select" || event.button !== 0) return;
                 event.stopPropagation();
                 select([column.id], event.shiftKey);
               }}
@@ -730,7 +837,13 @@ export function Viewport2D() {
 
         {/* Mobiliario */}
         {furniture.map((item) => {
-          const [cx, cy] = toScreen({ x: item.position.x, y: item.position.z });
+          const [baseX, baseY] = toScreen({ x: item.position.x, y: item.position.z });
+          const offset =
+            drag?.kind === "wall" && drag.ids.includes(item.id)
+              ? { x: drag.delta.x * view.scale, y: drag.delta.y * view.scale }
+              : { x: 0, y: 0 };
+          const cx = baseX + offset.x;
+          const cy = baseY + offset.y;
           const size = Math.max(6, 0.6 * view.scale);
           return (
             <rect
@@ -742,14 +855,33 @@ export function Viewport2D() {
               rx={2}
               fill={selection.has(item.id) ? "#22d3ee" : "#5f6b7a"}
               opacity={0.85}
+              style={{ cursor: tool === "select" ? "pointer" : "default" }}
               onPointerDown={(event) => {
-                if (tool !== "select") return;
+                if (tool !== "select" || event.button !== 0) return;
                 event.stopPropagation();
                 select([item.id], event.shiftKey);
               }}
             />
           );
         })}
+
+        {/* Seleccion por ventana */}
+        {drag?.kind === "marquee" ? (() => {
+          const start = toScreen(drag.origin);
+          const end = toScreen(drag.current);
+          return (
+            <rect
+              x={Math.min(start[0], end[0])}
+              y={Math.min(start[1], end[1])}
+              width={Math.abs(end[0] - start[0])}
+              height={Math.abs(end[1] - start[1])}
+              fill="rgba(34,211,238,0.12)"
+              stroke="#22d3ee"
+              strokeDasharray="5 3"
+              pointerEvents="none"
+            />
+          );
+        })() : null}
 
         {/* Pared en curso */}
         {tool === "wall" && drawStart && cursor ? (

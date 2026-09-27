@@ -16,6 +16,12 @@ import type {
 import { createId } from "./ids";
 import { DEFAULTS, suggestedSteps } from "./defaults";
 import { distance2 } from "./geometry2d";
+import { recomputeRooms } from "./rooms";
+import {
+  getSelectionPivot,
+  getTransformTargetIds,
+  roofOutlineCenter,
+} from "./selectable-bounds";
 
 /**
  * Reductor de comandos.
@@ -258,6 +264,8 @@ export function applyCommand(
         name: nextName("Cubierta", scene.roofs.length),
         kind: command.kind,
         outline: floorOutline(scene, floor.id),
+        position: { x: 0, y: 0 },
+        rotationY: 0,
         slopeDeg:
           command.slopeDeg ?? (command.kind === "flat" ? 2 : DEFAULTS.roof.slopeDeg),
         baseHeight: floor.height,
@@ -498,27 +506,56 @@ export function applyCommand(
       return { ...scene, underlay: command.underlay };
 
     case "TRANSFORM_OBJECTS": {
-      const targets = new Set(command.ids);
+      const targets = getTransformTargetIds(scene, command.ids);
       const move = command.translate ?? { x: 0, y: 0, z: 0 };
-      const rotate = command.rotateY ?? 0;
+      const requestedRotation = command.rotateY ?? 0;
+      const fullTurn = Math.PI * 2;
+      const fullTurns = Math.round(requestedRotation / fullTurn);
+      const rotate = Math.abs(requestedRotation - fullTurns * fullTurn) < 1e-10
+        ? 0
+        : requestedRotation;
+      if (
+        rotate === 0 &&
+        move.x === 0 &&
+        move.y === 0 &&
+        move.z === 0 &&
+        !command.scale
+      ) {
+        return scene;
+      }
 
-      const movePoint = (point: Vector2): Vector2 => ({
-        x: point.x + move.x,
-        y: point.y + move.z,
-      });
+      const selectionPivot = getSelectionPivot(scene, command.ids);
+      const pivot = selectionPivot
+        ? { x: selectionPivot.x, y: selectionPivot.z }
+        : { x: 0, y: 0 };
+      const cosine = Math.cos(rotate);
+      const sine = Math.sin(rotate);
 
-      return {
+      const rotatePoint = (point: Vector2): Vector2 => {
+        const x = point.x - pivot.x;
+        const y = point.y - pivot.y;
+        return {
+          x: pivot.x + cosine * x + sine * y + move.x,
+          y: pivot.y - sine * x + cosine * y + move.z,
+        };
+      };
+
+      const wallTargets = new Set(
+        scene.walls.filter((wall) => targets.has(wall.id)).map((wall) => wall.id),
+      );
+
+      const transformed: SceneDocument = {
         ...scene,
         walls: scene.walls.map((wall) =>
-          targets.has(wall.id) && !wall.locked
-            ? { ...wall, start: movePoint(wall.start), end: movePoint(wall.end) }
+          wallTargets.has(wall.id) && !wall.locked
+            ? { ...wall, start: rotatePoint(wall.start), end: rotatePoint(wall.end) }
             : wall,
         ),
         columns: scene.columns.map((column) =>
           targets.has(column.id) && !column.locked
             ? {
                 ...column,
-                position: movePoint(column.position),
+                position: rotatePoint(column.position),
                 rotationY: column.rotationY + rotate,
               }
             : column,
@@ -527,19 +564,44 @@ export function applyCommand(
           targets.has(stair.id) && !stair.locked
             ? {
                 ...stair,
-                position: movePoint(stair.position),
+                position: rotatePoint(stair.position),
                 rotationY: stair.rotationY + rotate,
               }
             : stair,
+        ),
+        roofs: scene.roofs.map((roof) =>
+          targets.has(roof.id) && !roof.locked
+            ? (() => {
+                const center = roofOutlineCenter(roof);
+                const currentCenter = {
+                  x: center.x + (roof.position?.x ?? 0),
+                  y: center.y + (roof.position?.y ?? 0),
+                };
+                const nextCenter = rotatePoint(currentCenter);
+                return {
+                  ...roof,
+                  position: {
+                    x: nextCenter.x - center.x,
+                    y: nextCenter.y - center.y,
+                  },
+                  rotationY: (roof.rotationY ?? 0) + rotate,
+                };
+              })()
+            : roof,
+        ),
+        slabs: scene.slabs.map((slab) =>
+          targets.has(slab.id) && !slab.locked
+            ? { ...slab, outline: slab.outline.map(rotatePoint) }
+            : slab,
         ),
         furniture: scene.furniture.map((item) =>
           targets.has(item.id) && !item.locked
             ? {
                 ...item,
                 position: {
-                  x: item.position.x + move.x,
+                  x: rotatePoint({ x: item.position.x, y: item.position.z }).x,
                   y: item.position.y + move.y,
-                  z: item.position.z + move.z,
+                  z: rotatePoint({ x: item.position.x, y: item.position.z }).y,
                 },
                 rotation: { ...item.rotation, y: item.rotation.y + rotate },
                 scale: command.scale ? { ...command.scale } : item.scale,
@@ -547,6 +609,9 @@ export function applyCommand(
             : item,
         ),
       };
+      return wallTargets.size > 0
+        ? { ...transformed, rooms: recomputeRooms(transformed) }
+        : transformed;
     }
 
     case "DELETE_OBJECTS": {

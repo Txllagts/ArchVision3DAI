@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { Edges } from "@react-three/drei";
 import type { ThreeEvent } from "@react-three/fiber";
+import { DoubleSide } from "three";
 import {
   collectWallOpenings,
   columnGeometryKey,
@@ -24,7 +25,11 @@ import {
   windowPlacement,
 } from "@archvision/geometry";
 import { materialLibrary } from "@archvision/three-engine";
-import { FURNITURE_FALLBACK, furnitureById } from "@archvision/shared";
+import {
+  FURNITURE_FALLBACK,
+  furnitureById,
+  roofOutlineCenter,
+} from "@archvision/shared";
 import type {
   Column,
   Door,
@@ -50,6 +55,7 @@ const HOVER_COLOR = "#7dd3fc";
 
 interface PickHandlers {
   onPick: (id: string, additive: boolean) => void;
+  onDragStart: (id: string, event: ThreeEvent<PointerEvent>) => void;
   onHover: (id: string | null) => void;
 }
 
@@ -61,8 +67,10 @@ function pickProps(id: string, handlers: PickHandlers) {
     // deducir a que entidad pertenece el objeto tocado.
     userData: { entityId: id },
     onPointerDown: (event: ThreeEvent<PointerEvent>) => {
+      if (event.nativeEvent.button !== 0) return;
       event.stopPropagation();
       handlers.onPick(id, event.nativeEvent.shiftKey);
+      handlers.onDragStart(id, event);
     },
     onPointerOver: (event: ThreeEvent<PointerEvent>) => {
       event.stopPropagation();
@@ -123,6 +131,7 @@ export function WallObject({
 
   const doors = scene.doors.filter((door) => door.wallId === wall.id);
   const windows = scene.windows.filter((window) => window.wallId === wall.id);
+  const genericOpenings = scene.openings.filter((opening) => opening.wallId === wall.id);
 
   if (!wall.visible) return null;
 
@@ -163,6 +172,21 @@ export function WallObject({
           hoveredId={hoveredId}
           handlers={handlers}
         />
+      ))}
+
+      {genericOpenings.map((opening) => (
+        <mesh
+          key={opening.id}
+          position={[opening.offset, opening.sillHeight + opening.height / 2, 0]}
+          {...pickProps(opening.id, handlers)}
+        >
+          <boxGeometry args={[opening.width, opening.height, wall.thickness]} />
+          <meshBasicMaterial transparent opacity={0} colorWrite={false} depthWrite={false} />
+          <Highlight
+            selected={selection.has(opening.id)}
+            hovered={hoveredId === opening.id}
+          />
+        </mesh>
       ))}
     </group>
   );
@@ -341,17 +365,42 @@ export function RoofObject({
 
   if (!roof.visible) return null;
 
+  const center = roofOutlineCenter(roof);
+  const position: [number, number, number] = [
+    center.x + (roof.position?.x ?? 0),
+    elevation + roof.baseHeight,
+    center.y + (roof.position?.y ?? 0),
+  ];
+  const rotation: [number, number, number] = [0, roof.rotationY ?? 0, 0];
+
   return (
-    <mesh
-      geometry={geometry}
-      material={materialLibrary.resolveById(roof.materialId, scene.materials)}
-      position={[0, elevation + roof.baseHeight, 0]}
-      castShadow
-      receiveShadow
-      {...pickProps(roof.id, handlers)}
-    >
-      <Highlight selected={selection.has(roof.id)} hovered={hoveredId === roof.id} />
-    </mesh>
+    <>
+      <mesh
+        geometry={geometry}
+        material={materialLibrary.resolveById(roof.materialId, scene.materials)}
+        position={position}
+        rotation={rotation}
+        castShadow
+        receiveShadow
+        {...pickProps(roof.id, handlers)}
+      >
+        <Highlight selected={selection.has(roof.id)} hovered={hoveredId === roof.id} />
+      </mesh>
+      <mesh
+        geometry={geometry}
+        position={position}
+        rotation={rotation}
+        {...pickProps(roof.id, handlers)}
+      >
+        <meshBasicMaterial
+          side={DoubleSide}
+          transparent
+          opacity={0}
+          colorWrite={false}
+          depthWrite={false}
+        />
+      </mesh>
+    </>
   );
 }
 
