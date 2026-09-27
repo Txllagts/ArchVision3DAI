@@ -96,6 +96,10 @@ export function useEditorShortcuts(options: { onSave: () => void }) {
         case "v":
           store.setTool("select");
           break;
+        case "h":
+        case "q":
+          store.setTool("pan");
+          break;
         case "l":
           store.setTool("wall");
           break;

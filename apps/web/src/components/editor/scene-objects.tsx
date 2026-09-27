@@ -11,6 +11,7 @@ import {
   createDoorLeafGeometry,
   createFrameGeometry,
   createGlassGeometry,
+  createFloorGeometry,
   createRoofGeometry,
   createSlabGeometry,
   createStairGeometry,
@@ -35,6 +36,7 @@ import type {
   Door,
   FurnitureInstance,
   Roof,
+  Room,
   SceneDocument,
   Slab,
   Stair,
@@ -339,6 +341,78 @@ export function SlabObject({
       {...pickProps(slab.id, handlers)}
     >
       <Highlight selected={selection.has(slab.id)} hovered={hoveredId === slab.id} />
+    </mesh>
+  );
+}
+
+// --------------------------------------------------------------------------
+// Suelo de habitacion
+// --------------------------------------------------------------------------
+
+/**
+ * Malla plana que representa el suelo de una habitacion detectada.
+ *
+ * Es una capa fina (2 mm) encima del nivel del piso para que sea visible
+ * sin competir con la losa estructural. Permite recibir materiales tanto
+ * por drag-drop como con el pincel en el visor 3D.
+ */
+export function RoomFloorObject({
+  room,
+  scene,
+  elevation,
+  selection,
+  hoveredId,
+  handlers,
+}: {
+  room: Room;
+  scene: SceneDocument;
+  elevation: number;
+  selection: Set<string>;
+  hoveredId: string | null;
+  handlers: PickHandlers;
+}) {
+  const FLOOR_THICKNESS = 0.002;
+  const polygonKey = room.polygon
+    .map((p) => `${p.x.toFixed(3)},${p.y.toFixed(3)}`)
+    .join(";");
+
+  const geometry = useMemo(
+    () =>
+      geometryCache.get(
+        `room-floor:${room.id}:${polygonKey}`,
+        () => createFloorGeometry(room.polygon, FLOOR_THICKNESS),
+      ),
+    // El poligono cambia cuando se rehacen las habitaciones
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [room.id, polygonKey],
+  );
+
+  const material = materialLibrary.resolveById(room.floorMaterialId, scene.materials);
+  const isSelected = selection.has(room.id);
+  const isHovered = hoveredId === room.id;
+
+  // Si no hay material asignado, se muestra transparente (invisible a la vista)
+  // para mantener la malla en el grafo de Three.js y permitir que el raycaster
+  // la detecte al arrastrar y soltar materiales (drag & drop) o usar el pincel.
+  return (
+    <mesh
+      geometry={geometry}
+      material={room.floorMaterialId ? material : undefined}
+      position={[0, elevation + 0.001, 0]}
+      receiveShadow
+      {...pickProps(room.id, handlers)}
+    >
+      {!room.floorMaterialId ? (
+        <meshStandardMaterial
+          color={isSelected ? "#22d3ee" : isHovered ? "#7dd3fc" : "#000000"}
+          transparent
+          opacity={isSelected ? 0.25 : isHovered ? 0.15 : 0}
+          depthWrite={false}
+          roughness={1}
+          metalness={0}
+        />
+      ) : null}
+      <Highlight selected={isSelected} hovered={isHovered} />
     </mesh>
   );
 }

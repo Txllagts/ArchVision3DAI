@@ -24,6 +24,7 @@ import type { StandardView } from "@archvision/three-engine";
 
 export type ToolId =
   | "select"
+  | "pan"
   | "wall"
   | "door"
   | "window"

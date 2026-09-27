@@ -4,6 +4,7 @@ import {
   Armchair,
   Columns3,
   DoorOpen,
+  Hand,
   MousePointer2,
   Move3d,
   PaintBucket,
@@ -23,6 +24,7 @@ const TOOLS: Array<{
   icon: typeof MousePointer2;
 }> = [
   { id: "select", label: "Seleccionar", shortcut: "V", icon: MousePointer2 },
+  { id: "pan", label: "Mover y rotar vista 3D", shortcut: "H", icon: Hand },
   { id: "wall", label: "Pared", shortcut: "L", icon: Slash },
   { id: "door", label: "Puerta", shortcut: "P", icon: DoorOpen },
   { id: "window", label: "Ventana", shortcut: "N", icon: PanelTop },

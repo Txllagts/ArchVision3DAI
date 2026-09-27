@@ -18,7 +18,6 @@ import {
   Sofa,
   Trash2,
   User,
-  Users,
 } from "lucide-react";
 import { Logo } from "@/components/brand/logo";
 import { cn } from "@/lib/utils";
@@ -40,7 +39,6 @@ interface NavItem {
 const MAIN: NavItem[] = [
   { href: "/dashboard", label: "Inicio", icon: Home },
   { href: "/projects", label: "Proyectos", icon: FolderOpen },
-  { href: "/team", label: "Equipo y Roles", icon: Users },
   { href: "/projects/new", label: "Nuevo proyecto", icon: Plus },
   { href: "/projects?sort=recent", label: "Modelos recientes", icon: Clock },
 ];

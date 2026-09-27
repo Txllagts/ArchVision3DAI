@@ -28,6 +28,7 @@ export function CommandPalette({ onSave }: { onSave: () => void }) {
 
     return [
       { id: "tool-select", label: "Herramienta: seleccionar", hint: "V", run: () => store.setTool("select") },
+      { id: "tool-pan", label: "Herramienta: mover y rotar vista 3D", hint: "H", run: () => store.setTool("pan") },
       { id: "tool-wall", label: "Herramienta: crear pared", hint: "L", run: () => store.setTool("wall") },
       { id: "tool-door", label: "Herramienta: agregar puerta", hint: "P", run: () => store.setTool("door") },
       { id: "tool-window", label: "Herramienta: agregar ventana", hint: "N", run: () => store.setTool("window") },
