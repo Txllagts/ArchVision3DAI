@@ -171,6 +171,7 @@ ArchVision3DAI/
 
 | Documento | Contenido |
 |-----------|-----------|
+| [`docs/guia/`](docs/guia/README.md) | **Guía del equipo:** últimos cambios, guía de uso con capturas, guía de desarrollo y problemas conocidos (también en PDF) |
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Arquitectura general y decisiones de diseño |
 | [`docs/DATABASE.md`](docs/DATABASE.md) | Modelo de datos y entidades |
 | [`docs/API.md`](docs/API.md) | API REST |
