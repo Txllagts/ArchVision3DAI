@@ -24,6 +24,10 @@ packages/database/prisma/dev.db*
 __pycache__/
 *.pyc
 .venv/
+apps/ai-service/.venv/
+apps/ai-service/.env
+apps/ai-service/weights/
+*.pt
 
 # OS / editores
 .DS_Store
