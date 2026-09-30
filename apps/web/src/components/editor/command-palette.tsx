@@ -67,6 +67,8 @@ export function CommandPalette({ onSave }: { onSave: () => void }) {
       { id: "view-fit", label: "Centrar modelo", hint: "F", run: () => store.requestView("fit") },
       { id: "undo", label: "Deshacer", hint: "Ctrl+Z", run: () => store.undo() },
       { id: "redo", label: "Rehacer", hint: "Ctrl+Shift+Z", run: () => store.redo() },
+      { id: "copy", label: "Copiar selección", hint: "Ctrl+C", run: () => store.copySelection() },
+      { id: "paste", label: "Pegar selección", hint: "Ctrl+V", run: () => store.pasteSelection() },
       { id: "save", label: "Guardar proyecto", hint: "Ctrl+S", run: onSave },
     ];
   }, [onSave]);
