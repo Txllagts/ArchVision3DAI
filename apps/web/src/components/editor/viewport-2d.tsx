@@ -10,7 +10,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from "react";
-import type { SceneDocument, Vector2, Wall } from "@archvision/types";
+import type { MaterialDefinition, SceneDocument, Vector2, Wall } from "@archvision/types";
 import {
   distance2,
   containsRect2D,
@@ -225,8 +225,9 @@ export function Viewport2D() {
       if (!activeFloor) return;
       const raw = toWorld(event.clientX, event.clientY);
 
-      // Boton central o secundario: encuadre.
-      if (event.button === 1 || event.button === 2 || event.altKey) {
+      // Boton central o secundario: encuadre, o herramienta pan.
+      if (tool === "pan" || event.button === 1 || event.button === 2 || event.altKey) {
+        event.currentTarget.setPointerCapture(event.pointerId);
         setDrag({ kind: "pan", origin: raw, startCenter: view.center });
         return;
       }
@@ -546,7 +547,16 @@ export function Viewport2D() {
         width={size.width}
         height={size.height}
         className="absolute inset-0 touch-none"
-        style={{ cursor: tool === "select" ? "default" : "crosshair" }}
+        style={{
+          cursor:
+            tool === "pan"
+              ? drag?.kind === "pan"
+                ? "grabbing"
+                : "grab"
+              : tool === "select"
+              ? "default"
+              : "crosshair",
+        }}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
         onPointerUp={handlePointerUp}
@@ -631,14 +641,48 @@ export function Viewport2D() {
           const centroid = toScreen(polygonCentroid(room.polygon));
           const isSelected = selection.has(room.id);
 
+          // Resolucion del color de suelo: si hay material asignado se usa su
+          // baseColor con opacidad reducida para mantener legible la planta.
+          const floorMaterial: MaterialDefinition | undefined = room.floorMaterialId
+            ? scene.materials.find((m) => m.id === room.floorMaterialId)
+            : undefined;
+
+          let fillColor: string;
+          if (isSelected) {
+            fillColor = "rgba(34,211,238,0.22)";
+          } else if (floorMaterial) {
+            // Convierte #rrggbb a rgba con opacidad 0.55 para que el material
+            // sea visible pero sin ocultar la cuadricula.
+            const hex = floorMaterial.baseColor.replace("#", "");
+            const r = parseInt(hex.substring(0, 2), 16);
+            const g = parseInt(hex.substring(2, 4), 16);
+            const b = parseInt(hex.substring(4, 6), 16);
+            fillColor = `rgba(${r},${g},${b},0.55)`;
+          } else {
+            fillColor = "rgba(125,211,252,0.07)";
+          }
+
+          const strokeColor = isSelected
+            ? "rgba(34,211,238,0.7)"
+            : floorMaterial
+            ? "rgba(255,255,255,0.18)"
+            : "rgba(125,211,252,0.25)";
+
           return (
             <g key={room.id}>
               <polygon
                 points={points}
-                fill={isSelected ? "rgba(34,211,238,0.16)" : "rgba(125,211,252,0.07)"}
-                stroke="rgba(125,211,252,0.25)"
-                strokeWidth={1}
-                style={{ cursor: tool === "select" ? "pointer" : "default" }}
+                fill={fillColor}
+                stroke={strokeColor}
+                strokeWidth={isSelected ? 1.5 : 1}
+                style={{
+                  cursor:
+                    tool === "select"
+                      ? "pointer"
+                      : tool === "paint"
+                      ? "crosshair"
+                      : "default",
+                }}
                 onPointerDown={(event) => {
                   if (event.button !== 0) return;
                   if (tool === "paint") {
@@ -657,15 +701,30 @@ export function Viewport2D() {
                   y={centroid[1]}
                   textAnchor="middle"
                   className="pointer-events-none select-none"
-                  fill="#9fb3c8"
+                  fill={floorMaterial ? "#ffffff" : "#9fb3c8"}
                   fontSize={11}
                 >
                   <tspan x={centroid[0]} dy="-2">
                     {room.name}
                   </tspan>
-                  <tspan x={centroid[0]} dy="14" fill="#6b7f93" fontSize={10}>
+                  <tspan
+                    x={centroid[0]}
+                    dy="14"
+                    fill={floorMaterial ? "rgba(255,255,255,0.7)" : "#6b7f93"}
+                    fontSize={10}
+                  >
                     {formatArea(room.area, units)}
                   </tspan>
+                  {floorMaterial ? (
+                    <tspan
+                      x={centroid[0]}
+                      dy="12"
+                      fill="rgba(255,255,255,0.55)"
+                      fontSize={9}
+                    >
+                      {floorMaterial.name}
+                    </tspan>
+                  ) : null}
                 </text>
               ) : null}
             </g>

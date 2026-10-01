@@ -44,6 +44,7 @@ import {
   ColumnObject,
   FurnitureObject,
   RoofObject,
+  RoomFloorObject,
   SlabObject,
   StairObject,
   WallObject,
@@ -269,6 +270,7 @@ function WorkPlane({
         );
       }}
       onPointerDown={(event) => {
+        if (tool === "pan") return;
         if (tool === "select" && event.nativeEvent.button !== 0) return;
         event.stopPropagation();
         if (tool === "select") {
@@ -315,6 +317,20 @@ function FloorContent({
 
   return (
     <group>
+      {scene.rooms
+        .filter((room) => room.floorId === floor.id)
+        .map((room) => (
+          <RoomFloorObject
+            key={room.id}
+            room={room}
+            scene={scene}
+            elevation={floor.elevation}
+            selection={selection}
+            hoveredId={hoveredId}
+            handlers={handlers}
+          />
+        ))}
+
       {scene.slabs
         .filter((slab) => slab.floorId === floor.id)
         .map((slab) => (
@@ -660,6 +676,7 @@ function SceneContent() {
   const handlers = useMemo(
     () => ({
       onPick: (id: string, additive: boolean) => {
+        if (tool === "pan") return;
         // Con el pincel activo, hacer clic pinta en vez de seleccionar: es la
         // misma accion que el usuario espera de un bote de pintura.
         if (tool === "paint") {
@@ -701,6 +718,7 @@ function SceneContent() {
         setMoveGesture(gesture);
       },
       onHover: (id: string | null) => {
+        if (tool === "pan") return;
         setHovered(id);
         gl.domElement.style.cursor =
           moveGesture ? "grabbing" : tool === "select" && id ? "grab" : "";
@@ -710,9 +728,27 @@ function SceneContent() {
   );
 
   useEffect(() => {
-    gl.domElement.style.cursor = tool === "select" ? "default" : "crosshair";
+    const dom = gl.domElement;
+    if (tool === "pan") {
+      dom.style.cursor = "grab";
+      const onDown = () => {
+        dom.style.cursor = "grabbing";
+      };
+      const onUp = () => {
+        dom.style.cursor = "grab";
+      };
+      dom.addEventListener("pointerdown", onDown);
+      window.addEventListener("pointerup", onUp);
+      return () => {
+        dom.removeEventListener("pointerdown", onDown);
+        window.removeEventListener("pointerup", onUp);
+        dom.style.cursor = "";
+      };
+    }
+
+    dom.style.cursor = tool === "select" ? "default" : "crosshair";
     return () => {
-      gl.domElement.style.cursor = "";
+      dom.style.cursor = "";
     };
   }, [gl, tool]);
 
@@ -1287,11 +1323,12 @@ export function Viewport3D() {
         dampingFactor={0.12}
         enablePan={tool !== "select"}
         mouseButtons={{
-          LEFT: tool === "select" ? MOUSE.PAN : MOUSE.ROTATE,
-          MIDDLE: MOUSE.ROTATE,
-          RIGHT: MOUSE.PAN,
+          LEFT: tool === "pan" ? MOUSE.ROTATE : undefined,
+          MIDDLE: MOUSE.PAN,
+          RIGHT: tool === "pan" ? MOUSE.PAN : MOUSE.ROTATE,
         }}
-        maxPolarAngle={Math.PI / 2.02}
+        maxPolarAngle={tool === "pan" ? Math.PI - 0.05 : Math.PI / 2.02}
+        minPolarAngle={0.01}
         minDistance={1}
         maxDistance={400}
       />

@@ -3,12 +3,26 @@
 import { create } from "zustand";
 import { SCENE_SCHEMA_VERSION } from "@archvision/types";
 import type {
+  Column,
+  Door,
+  FurnitureInstance,
+  Opening,
+  Roof,
   SceneCommand,
   SceneDocument,
+  Slab,
+  Stair,
   UnitSystem,
   Vector2,
+  Wall,
+  WindowEntity,
 } from "@archvision/types";
-import { CommandError, applyCommand, withRecomputedRooms } from "@archvision/shared";
+import {
+  CommandError,
+  applyCommand,
+  createId,
+  withRecomputedRooms,
+} from "@archvision/shared";
 import type { AssistantMessage } from "@archvision/assistant";
 import type { StandardView } from "@archvision/three-engine";
 
@@ -24,6 +38,7 @@ import type { StandardView } from "@archvision/three-engine";
 
 export type ToolId =
   | "select"
+  | "pan"
   | "wall"
   | "door"
   | "window"
@@ -64,6 +79,20 @@ export interface MeasureState {
   end: Vector2 | null;
 }
 
+export interface ClipboardData {
+  sourceFloorId: string | null;
+  pasteCount: number;
+  walls: Wall[];
+  doors: Door[];
+  windows: WindowEntity[];
+  openings: Opening[];
+  columns: Column[];
+  stairs: Stair[];
+  roofs: Roof[];
+  slabs: Slab[];
+  furniture: FurnitureInstance[];
+}
+
 interface EditorState {
   projectId: string;
   projectName: string;
@@ -77,6 +106,10 @@ interface EditorState {
 
   selection: string[];
   hoveredId: string | null;
+
+  clipboard: ClipboardData | null;
+  copySelection: () => void;
+  pasteSelection: () => void;
 
   tool: ToolId;
   viewMode: ViewMode;
@@ -218,6 +251,8 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
 
   selection: [],
   hoveredId: null,
+
+  clipboard: null,
 
   tool: "select",
   viewMode: "split",
@@ -468,6 +503,252 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
 
   clearSelection: () => set({ selection: [] }),
   setHovered: (hoveredId) => set({ hoveredId }),
+
+  copySelection: () => {
+    const { scene, selection } = get();
+    if (selection.length === 0) return;
+
+    const selectedSet = new Set(selection);
+
+    const selectedRooms = scene.rooms.filter((room) => selectedSet.has(room.id));
+    for (const room of selectedRooms) {
+      for (const wallId of room.wallIds) {
+        selectedSet.add(wallId);
+      }
+    }
+
+    const selectedWalls = scene.walls.filter((w) => selectedSet.has(w.id));
+    const wallIdsSet = new Set(selectedWalls.map((w) => w.id));
+
+    const selectedDoors = scene.doors.filter(
+      (d) => selectedSet.has(d.id) || wallIdsSet.has(d.wallId),
+    );
+    const selectedWindows = scene.windows.filter(
+      (w) => selectedSet.has(w.id) || wallIdsSet.has(w.wallId),
+    );
+    const selectedOpenings = scene.openings.filter(
+      (o) => selectedSet.has(o.id) || wallIdsSet.has(o.wallId),
+    );
+
+    const selectedColumns = scene.columns.filter((c) => selectedSet.has(c.id));
+    const selectedStairs = scene.stairs.filter((s) => selectedSet.has(s.id));
+    const selectedRoofs = scene.roofs.filter((r) => selectedSet.has(r.id));
+    const selectedSlabs = scene.slabs.filter((s) => selectedSet.has(s.id));
+    const selectedFurniture = scene.furniture.filter((f) => selectedSet.has(f.id));
+
+    const totalItems =
+      selectedWalls.length +
+      selectedDoors.length +
+      selectedWindows.length +
+      selectedOpenings.length +
+      selectedColumns.length +
+      selectedStairs.length +
+      selectedRoofs.length +
+      selectedSlabs.length +
+      selectedFurniture.length;
+
+    if (totalItems === 0) return;
+
+    const sourceFloorId =
+      selectedWalls[0]?.floorId ??
+      selectedColumns[0]?.floorId ??
+      selectedStairs[0]?.floorId ??
+      selectedRoofs[0]?.floorId ??
+      selectedSlabs[0]?.floorId ??
+      selectedFurniture[0]?.floorId ??
+      get().activeFloorId;
+
+    set({
+      clipboard: {
+        sourceFloorId,
+        pasteCount: 0,
+        walls: JSON.parse(JSON.stringify(selectedWalls)),
+        doors: JSON.parse(JSON.stringify(selectedDoors)),
+        windows: JSON.parse(JSON.stringify(selectedWindows)),
+        openings: JSON.parse(JSON.stringify(selectedOpenings)),
+        columns: JSON.parse(JSON.stringify(selectedColumns)),
+        stairs: JSON.parse(JSON.stringify(selectedStairs)),
+        roofs: JSON.parse(JSON.stringify(selectedRoofs)),
+        slabs: JSON.parse(JSON.stringify(selectedSlabs)),
+        furniture: JSON.parse(JSON.stringify(selectedFurniture)),
+      },
+      message: { kind: "info", text: `${totalItems} elemento(s) copiado(s)` },
+    });
+  },
+
+  pasteSelection: () => {
+    const { clipboard, activeFloorId, scene, past } = get();
+    if (!clipboard) return;
+
+    const targetFloorId = activeFloorId ?? scene.floors[0]?.id;
+    if (!targetFloorId) {
+      set({ message: { kind: "error", text: "No hay un nivel activo para pegar" } });
+      return;
+    }
+
+    const isDifferentFloor = targetFloorId !== clipboard.sourceFloorId;
+    const stepCount = isDifferentFloor ? clipboard.pasteCount : clipboard.pasteCount + 1;
+    const dx = stepCount * 1.0;
+    const dy = stepCount * 1.0;
+
+    const idMap = new Map<string, string>();
+    const newPastedIds: string[] = [];
+
+    const newWalls = clipboard.walls.map((wall) => {
+      const newId = createId();
+      idMap.set(wall.id, newId);
+      newPastedIds.push(newId);
+      return {
+        ...wall,
+        id: newId,
+        floorId: targetFloorId,
+        start: { x: wall.start.x + dx, y: wall.start.y + dy },
+        end: { x: wall.end.x + dx, y: wall.end.y + dy },
+      };
+    });
+
+    const newDoors = clipboard.doors
+      .filter((door) => idMap.has(door.wallId))
+      .map((door) => {
+        const newId = createId();
+        idMap.set(door.id, newId);
+        newPastedIds.push(newId);
+        return {
+          ...door,
+          id: newId,
+          floorId: targetFloorId,
+          wallId: idMap.get(door.wallId)!,
+        };
+      });
+
+    const newWindows = clipboard.windows
+      .filter((win) => idMap.has(win.wallId))
+      .map((win) => {
+        const newId = createId();
+        idMap.set(win.id, newId);
+        newPastedIds.push(newId);
+        return {
+          ...win,
+          id: newId,
+          floorId: targetFloorId,
+          wallId: idMap.get(win.wallId)!,
+        };
+      });
+
+    const newOpenings = clipboard.openings
+      .filter((op) => idMap.has(op.wallId))
+      .map((op) => {
+        const newId = createId();
+        idMap.set(op.id, newId);
+        newPastedIds.push(newId);
+        return {
+          ...op,
+          id: newId,
+          floorId: targetFloorId,
+          wallId: idMap.get(op.wallId)!,
+        };
+      });
+
+    const newColumns = clipboard.columns.map((col) => {
+      const newId = createId();
+      idMap.set(col.id, newId);
+      newPastedIds.push(newId);
+      return {
+        ...col,
+        id: newId,
+        floorId: targetFloorId,
+        position: { x: col.position.x + dx, y: col.position.y + dy },
+      };
+    });
+
+    const newStairs = clipboard.stairs.map((stair) => {
+      const newId = createId();
+      idMap.set(stair.id, newId);
+      newPastedIds.push(newId);
+      return {
+        ...stair,
+        id: newId,
+        floorId: targetFloorId,
+        position: { x: stair.position.x + dx, y: stair.position.y + dy },
+      };
+    });
+
+    const newRoofs = clipboard.roofs.map((roof) => {
+      const newId = createId();
+      idMap.set(roof.id, newId);
+      newPastedIds.push(newId);
+      return {
+        ...roof,
+        id: newId,
+        floorId: targetFloorId,
+        outline: roof.outline.map((pt) => ({ x: pt.x + dx, y: pt.y + dy })),
+        position: roof.position
+          ? { x: roof.position.x + dx, y: roof.position.y + dy }
+          : undefined,
+      };
+    });
+
+    const newSlabs = clipboard.slabs.map((slab) => {
+      const newId = createId();
+      idMap.set(slab.id, newId);
+      newPastedIds.push(newId);
+      return {
+        ...slab,
+        id: newId,
+        floorId: targetFloorId,
+        outline: slab.outline.map((pt) => ({ x: pt.x + dx, y: pt.y + dy })),
+      };
+    });
+
+    const newFurniture = clipboard.furniture.map((furn) => {
+      const newId = createId();
+      idMap.set(furn.id, newId);
+      newPastedIds.push(newId);
+      return {
+        ...furn,
+        id: newId,
+        floorId: targetFloorId,
+        position: {
+          x: furn.position.x + dx,
+          y: furn.position.y,
+          z: furn.position.z + dy,
+        },
+      };
+    });
+
+    if (newPastedIds.length === 0) return;
+
+    const nextScene: SceneDocument = {
+      ...scene,
+      walls: [...scene.walls, ...newWalls],
+      doors: [...scene.doors, ...newDoors],
+      windows: [...scene.windows, ...newWindows],
+      openings: [...scene.openings, ...newOpenings],
+      columns: [...scene.columns, ...newColumns],
+      stairs: [...scene.stairs, ...newStairs],
+      roofs: [...scene.roofs, ...newRoofs],
+      slabs: [...scene.slabs, ...newSlabs],
+      furniture: [...scene.furniture, ...newFurniture],
+    };
+
+    const withRooms = newWalls.length > 0 ? withRecomputedRooms(nextScene) : nextScene;
+
+    set({
+      scene: withRooms,
+      past: [...past, scene].slice(-HISTORY_LIMIT),
+      future: [],
+      saveStatus: "dirty",
+      selection: newPastedIds,
+      clipboard: {
+        ...clipboard,
+        pasteCount: clipboard.pasteCount + 1,
+      },
+      message: {
+        kind: "info",
+        text: `${newPastedIds.length} elemento(s) pegado(s)`,
+      },
+    });
+  },
 
   setSnapEnabled: (snapEnabled) => set({ snapEnabled }),
   setGridStep: (gridStep) => set({ gridStep }),
