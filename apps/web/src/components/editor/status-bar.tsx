@@ -33,6 +33,7 @@ function useFps(): number {
 
 const TOOL_HINTS: Record<string, string> = {
   select: "Clic para seleccionar · arrastra nodos para mover paredes",
+  pan: "Arrastra con clic izquierdo para voltear/rotar la vista 3D · Clic derecho para desplazar · Rueda para zoom",
   wall: "Clic para el primer punto, clic para cerrar el tramo · Esc cancela",
   door: "Clic sobre una pared para colocar la puerta",
   window: "Clic sobre una pared para colocar la ventana",

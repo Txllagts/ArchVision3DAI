@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Loader2, Trash2, Upload, X } from "lucide-react";
-import { detectWalls } from "@archvision/vision";
+import { detectWalls, detectWallsRemote } from "@archvision/vision";
 import type { PlanUnderlay } from "@archvision/types";
 import { useEditorStore, type ProposedWall } from "@/lib/editor/store";
 import { imageToWorld, loadImageData, recalibrate } from "@/lib/editor/underlay";
@@ -163,8 +163,15 @@ export function PlanImportPanel() {
     setBusy("detect");
 
     try {
-      const image = await loadImageData(active.url);
-      const report = detectWalls(image, { pixelsPerMeter: underlay.pixelsPerMeter });
+      let report;
+      try {
+        report = await detectWallsRemote(active.url, {
+          pixelsPerMeter: underlay.pixelsPerMeter,
+        });
+      } catch {
+        const image = await loadImageData(active.url);
+        report = detectWalls(image, { pixelsPerMeter: underlay.pixelsPerMeter });
+      }
 
       const proposed: ProposedWall[] = report.walls.map((wall) => {
         // La deteccion trabaja en metros medidos sobre la imagen; hay que

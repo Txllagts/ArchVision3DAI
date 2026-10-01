@@ -64,6 +64,18 @@ export function useEditorShortcuts(options: { onSave: () => void }) {
 
       if (isTypingTarget(event.target)) return;
 
+      if (ctrl && event.key.toLowerCase() === "c") {
+        event.preventDefault();
+        store.copySelection();
+        return;
+      }
+
+      if (ctrl && event.key.toLowerCase() === "v") {
+        event.preventDefault();
+        store.pasteSelection();
+        return;
+      }
+
       if (ctrl && event.key.toLowerCase() === "a") {
         event.preventDefault();
         const floorId = store.activeFloorId ?? store.scene.floors[0]?.id;
@@ -95,6 +107,10 @@ export function useEditorShortcuts(options: { onSave: () => void }) {
       switch (event.key.toLowerCase()) {
         case "v":
           store.setTool("select");
+          break;
+        case "h":
+        case "q":
+          store.setTool("pan");
           break;
         case "l":
           store.setTool("wall");

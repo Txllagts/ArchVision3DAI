@@ -6,6 +6,8 @@ import {
   ArrowLeft,
   Box,
   Camera,
+  Clipboard,
+  Copy,
   Home,
   Layers,
   Maximize2,
@@ -39,6 +41,10 @@ export function EditorTopBar({ onSave }: { onSave: () => void }) {
   const setAssistantOpen = useEditorStore((state) => state.setAssistantOpen);
   const undo = useEditorStore((state) => state.undo);
   const redo = useEditorStore((state) => state.redo);
+  const selection = useEditorStore((state) => state.selection);
+  const clipboard = useEditorStore((state) => state.clipboard);
+  const copySelection = useEditorStore((state) => state.copySelection);
+  const pasteSelection = useEditorStore((state) => state.pasteSelection);
   const dispatch = useEditorStore((state) => state.dispatch);
   const setActiveFloor = useEditorStore((state) => state.setActiveFloor);
   const setViewMode = useEditorStore((state) => state.setViewMode);
@@ -97,6 +103,26 @@ export function EditorTopBar({ onSave }: { onSave: () => void }) {
           aria-label="Rehacer"
         >
           <Redo2 className="size-4" aria-hidden />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={copySelection}
+          disabled={selection.length === 0}
+          title="Copiar selección (Ctrl+C)"
+          aria-label="Copiar selección"
+        >
+          <Copy className="size-4" aria-hidden />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={pasteSelection}
+          disabled={!clipboard}
+          title="Pegar selección (Ctrl+V)"
+          aria-label="Pegar selección"
+        >
+          <Clipboard className="size-4" aria-hidden />
         </Button>
       </div>
 

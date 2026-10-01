@@ -18,7 +18,6 @@ import {
   Sofa,
   Trash2,
   User,
-  Users,
 } from "lucide-react";
 import { Logo } from "@/components/brand/logo";
 import { cn } from "@/lib/utils";
@@ -40,21 +39,20 @@ interface NavItem {
 const MAIN: NavItem[] = [
   { href: "/dashboard", label: "Inicio", icon: Home },
   { href: "/projects", label: "Proyectos", icon: FolderOpen },
-  { href: "/team", label: "Equipo y Roles", icon: Users },
   { href: "/projects/new", label: "Nuevo proyecto", icon: Plus },
   { href: "/projects?sort=recent", label: "Modelos recientes", icon: Clock },
 ];
 
 const LIBRARIES: NavItem[] = [
-  { href: "/library/materials", label: "Materiales", icon: LibraryBig, phase: "Fase 4" },
-  { href: "/library/furniture", label: "Muebles", icon: Sofa, phase: "Fase 4" },
-  { href: "/library/models", label: "Recursos", icon: Boxes, phase: "Fase 4" },
+  { href: "/library/materials", label: "Materiales", icon: LibraryBig },
+  { href: "/library/furniture", label: "Muebles", icon: Sofa },
+  { href: "/library/models", label: "Recursos", icon: Boxes },
 ];
 
 const WORK: NavItem[] = [
-  { href: "/files", label: "Archivos", icon: FileStack, phase: "Fase 5" },
-  { href: "/exports", label: "Exportaciones", icon: Share2, phase: "Fase 8" },
-  { href: "/history", label: "Historial", icon: Layers, phase: "Fase 2" },
+  { href: "/files", label: "Archivos", icon: FileStack },
+  { href: "/exports", label: "Exportaciones", icon: Share2 },
+  { href: "/history", label: "Historial", icon: Layers },
   { href: "/trash", label: "Papelera", icon: Trash2 },
 ];
 

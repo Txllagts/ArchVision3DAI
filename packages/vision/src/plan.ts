@@ -425,3 +425,45 @@ export function pixelsPerMeterFrom(
   if (realLengthMeters <= 0) throw new Error("La medida real debe ser mayor que cero");
   return pixels / realLengthMeters;
 }
+
+/**
+ * Conecta con el servicio de IA local (FastAPI Python / YOLOv11 + OpenCV)
+ * para realizar una deteccion acelerada por GPU de muros y vanos.
+ */
+export async function detectWallsRemote(
+  imageUrl: string,
+  options: { serviceUrl?: string; pixelsPerMeter?: number } = {},
+): Promise<DetectionReport> {
+  const serviceUrl = options.serviceUrl ?? "http://localhost:8001";
+  const pixelsPerMeter = options.pixelsPerMeter ?? 50;
+
+  const response = await fetch(imageUrl);
+  const blob = await response.blob();
+
+  const formData = new FormData();
+  formData.append("file", blob, "floorplan.png");
+  formData.append("pixels_per_meter", pixelsPerMeter.toString());
+
+  const apiRes = await fetch(`${serviceUrl}/analyze-floorplan`, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!apiRes.ok) {
+    throw new Error(`Servicio IA devolvio error: ${apiRes.statusText}`);
+  }
+
+  const data = (await apiRes.json()) as {
+    walls: DetectedWall[];
+    dominant_angle_deg: number;
+  };
+
+  return {
+    walls: data.walls,
+    dominantAngleDeg: data.dominant_angle_deg,
+    inkRatio: 0.5,
+    threshold: 128,
+    lineCount: data.walls.length,
+  };
+}
+
