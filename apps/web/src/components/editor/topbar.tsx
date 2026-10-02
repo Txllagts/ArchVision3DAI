@@ -18,6 +18,7 @@ import {
   Save,
   Sparkles,
   Square,
+  Trash2,
   Undo2,
 } from "lucide-react";
 import { Logo } from "@/components/brand/logo";
@@ -151,6 +152,25 @@ export function EditorTopBar({ onSave }: { onSave: () => void }) {
           onClick={() => dispatch({ type: "CREATE_FLOOR" })}
         >
           <Plus className="size-4" aria-hidden />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          title={
+            scene.floors.length > 1
+              ? "Eliminar planta actual"
+              : "No se puede eliminar la única planta"
+          }
+          aria-label="Eliminar planta actual"
+          disabled={scene.floors.length <= 1}
+          onClick={() => {
+            if (activeFloorId && scene.floors.length > 1) {
+              dispatch({ type: "DELETE_OBJECTS", ids: [activeFloorId] });
+            }
+          }}
+          className="text-ink-muted hover:text-danger disabled:opacity-30"
+        >
+          <Trash2 className="size-4" aria-hidden />
         </Button>
       </div>
 

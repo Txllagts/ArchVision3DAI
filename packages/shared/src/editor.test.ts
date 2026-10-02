@@ -117,6 +117,21 @@ describe("command-reducer", () => {
     expect(next.activeFloorId).toBe(next.floors[1]!.id);
   });
 
+  it("elimina un nivel secundario y mantiene la escena consistente", () => {
+    const scene = createDefaultScene({ floorHeight: 2.6 });
+    const withFloor = applyCommand(scene, { type: "CREATE_FLOOR" });
+    const newFloorId = withFloor.floors[1]!.id;
+
+    const deleted = applyCommand(withFloor, {
+      type: "DELETE_OBJECTS",
+      ids: [newFloorId],
+    });
+
+    expect(deleted.floors).toHaveLength(1);
+    expect(deleted.floors.some((f) => f.id === newFloorId)).toBe(false);
+    expect(deleted.activeFloorId).toBe(deleted.floors[0]!.id);
+  });
+
   it("asigna material a la cara indicada", () => {
     const scene = sceneWithRoom();
     const wall = scene.walls[0]!;
