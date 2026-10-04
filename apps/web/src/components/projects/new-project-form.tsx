@@ -49,9 +49,8 @@ const METHODS: MethodOption[] = [
   {
     id: "photos",
     title: "Desde fotografias",
-    description: "Sube fachadas e interiores y deja que la IA proponga la geometria.",
+    description: "Crea el proyecto y genera un modelo inicial desde una imagen con TripoSR.",
     icon: Camera,
-    phase: "Fase 7",
   },
   {
     id: "floorplan",

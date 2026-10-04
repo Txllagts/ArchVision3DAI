@@ -91,3 +91,21 @@ de créditos.
 Antes de generar geometría, la imagen se muestra con superposiciones. El usuario
 puede confirmar, corregir la caja, eliminar una detección falsa o añadir un
 elemento que el modelo no vio. Solo entonces se construye la escena.
+
+## Integración de generación de imagen a 3D
+
+La vista de detalle del proyecto ofrece una primera integración síncrona con
+TripoSR. Acepta JPG, PNG y WebP de hasta 20 MB, muestra una previsualización de
+la imagen y el GLB resultante, y deja la inferencia en el microservicio local.
+
+El navegador envía el archivo a `POST /api/projects/{id}/ai/generate`. Next.js
+requiere sesión y acceso al proyecto, limita las solicitudes y reenvía el
+archivo a `AI_SERVICE_URL` con `X-AI-Service-Key`. `AI_SERVICE_TOKEN` debe
+coincidir con `AI_SERVICE_API_KEY` del microservicio y solo se usa en el
+servidor. El resultado registra la ejecución en `AIAnalysis` y el objeto
+generado en `ExportJob`; el GLB queda en el bucket privado `models-3d`, que el
+servicio crea durante el startup si no existe.
+
+Esta primera ruta espera la inferencia completa y no usa la cola ni el sondeo
+de progreso descritos arriba. La URL firmada se usa para la previsualización
+inmediata; la ruta persistente del modelo se conserva en `ExportJob`.
