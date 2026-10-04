@@ -18,7 +18,7 @@ export default async function AppLayout({
       <Sidebar />
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="flex h-14 items-center justify-between gap-4 border-b border-line bg-surface px-4">
-          <div className="text-xs text-ink-subtle">
+          <div className="text-sm font-semibold text-white">
             Espacio de trabajo personal
           </div>
           <UserMenu name={user.name} email={user.email} plan={user.plan} />
