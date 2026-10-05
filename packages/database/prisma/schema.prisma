@@ -4,8 +4,7 @@
 // PORTABILIDAD: el esquema evita deliberadamente caracteristicas exclusivas de
 // PostgreSQL (enums nativos, arrays, tipo Json). Los campos de tipo enumerado
 // se guardan como String y se validan con Zod; los documentos se guardan como
-// String con JSON serializado. Para pasar a PostgreSQL basta cambiar
-// `provider = "postgresql"` y ejecutar una nueva migracion.
+// String con JSON serializado. La base activa usa PostgreSQL.
 //
 // REGLA: ningun archivo binario vive en la base de datos, solo su storageKey.
 // ---------------------------------------------------------------------------
@@ -15,8 +14,8 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 

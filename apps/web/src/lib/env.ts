@@ -17,7 +17,8 @@ const serverEnvSchema = z.object({
   STORAGE_DRIVER: z.enum(["local", "s3"]).default("local"),
   STORAGE_LOCAL_DIR: z.string().default("./storage"),
   AI_SERVICE_URL: z.string().url().optional(),
-  AI_MODE: z.enum(["mock", "local", "live", "serverless"]).default("mock"),
+  AI_SERVICE_TOKEN: z.string().min(1).optional(),
+  AI_MODE: z.enum(["mock", "live"]).default("mock"),
   /**
    * Motor del asistente. `local` resuelve con reglas dentro del proceso y no
    * necesita clave ni conexion; `claude` delega en el modelo de lenguaje
