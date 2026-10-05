@@ -35,6 +35,15 @@ export function CommandPalette({ onSave }: { onSave: () => void }) {
       { id: "tool-measure", label: "Herramienta: medir", hint: "M", run: () => store.setTool("measure") },
       { id: "floor-add", label: "Agregar planta", run: () => store.dispatch({ type: "CREATE_FLOOR" }) },
       {
+        id: "floor-delete",
+        label: "Eliminar planta actual",
+        run: () => {
+          if (floorId && store.scene.floors.length > 1) {
+            store.dispatch({ type: "DELETE_OBJECTS", ids: [floorId] });
+          }
+        },
+      },
+      {
         id: "assistant",
         label: "Abrir el asistente",
         hint: "A",

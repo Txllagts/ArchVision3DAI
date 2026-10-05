@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { RotateCcw, RotateCw } from "lucide-react";
+import { RotateCcw, RotateCw, Trash2 } from "lucide-react";
 import type { SceneDocument, UnitSystem } from "@archvision/types";
 import {
   distance2,
@@ -236,6 +236,7 @@ export function Inspector() {
   const units = useEditorStore((state) => state.units);
   const selection = useEditorStore((state) => state.selection);
   const dispatch = useEditorStore((state) => state.dispatch);
+  const clearSelection = useEditorStore((state) => state.clearSelection);
   const [rotationDegrees, setRotationDegrees] = useState("90");
   const [rotationPreferenceLoaded, setRotationPreferenceLoaded] = useState(false);
 
@@ -261,6 +262,11 @@ export function Inspector() {
     );
   }
 
+  const handleDeleteSelection = () => {
+    dispatch({ type: "DELETE_OBJECTS", ids: selection });
+    clearSelection();
+  };
+
   if (selection.length > 1) {
     return (
       <div className="border-t border-line">
@@ -270,9 +276,19 @@ export function Inspector() {
           degrees={rotationDegrees}
           onDegreesChange={setRotationDegrees}
         />
-        <p className="px-3 py-4 text-[11px] text-ink-muted">
-          {selection.length} objetos seleccionados. Usa Supr para eliminarlos.
-        </p>
+        <div className="flex flex-col gap-2 p-3">
+          <p className="text-[11px] text-ink-muted">
+            {selection.length} objetos seleccionados.
+          </p>
+          <button
+            type="button"
+            onClick={handleDeleteSelection}
+            className="flex items-center justify-center gap-1.5 rounded border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs font-medium text-danger hover:bg-danger/20"
+          >
+            <Trash2 className="size-3.5" aria-hidden />
+            Eliminar seleccionados
+          </button>
+        </div>
       </div>
     );
   }
@@ -585,6 +601,17 @@ export function Inspector() {
             <TextRow label="Catalogo" value={furniture.catalogId} />
           </>
         ) : null}
+
+        <div className="border-t border-line p-3">
+          <button
+            type="button"
+            onClick={handleDeleteSelection}
+            className="flex w-full items-center justify-center gap-1.5 rounded border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs font-medium text-danger hover:bg-danger/20"
+          >
+            <Trash2 className="size-3.5" aria-hidden />
+            Eliminar objeto
+          </button>
+        </div>
       </div>
     </div>
   );

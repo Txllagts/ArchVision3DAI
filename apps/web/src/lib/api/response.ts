@@ -20,6 +20,9 @@ export type ApiErrorCode =
   | "PAYLOAD_TOO_LARGE"
   | "RATE_LIMITED"
   | "QUOTA_EXCEEDED"
+  | "SERVICE_UNAVAILABLE"
+  | "UPSTREAM_ERROR"
+  | "UPSTREAM_TIMEOUT"
   | "INTERNAL";
 
 const STATUS_BY_CODE: Record<ApiErrorCode, number> = {
@@ -31,6 +34,9 @@ const STATUS_BY_CODE: Record<ApiErrorCode, number> = {
   PAYLOAD_TOO_LARGE: 413,
   RATE_LIMITED: 429,
   QUOTA_EXCEEDED: 402,
+  SERVICE_UNAVAILABLE: 503,
+  UPSTREAM_ERROR: 502,
+  UPSTREAM_TIMEOUT: 504,
   INTERNAL: 500,
 };
 

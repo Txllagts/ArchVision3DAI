@@ -91,3 +91,42 @@ de créditos.
 Antes de generar geometría, la imagen se muestra con superposiciones. El usuario
 puede confirmar, corregir la caja, eliminar una detección falsa o añadir un
 elemento que el modelo no vio. Solo entonces se construye la escena.
+
+## Integración de generación de imagen a 3D
+
+La vista de detalle del proyecto ofrece dos flujos de creación independientes:
+
+1. **Objeto 3D** — JPG, PNG o WebP de hasta 20 MB. La interfaz permite elegir
+   Estándar (RMBG/TripoSR) o Alta calidad (InstantMesh). El navegador envía la
+   imagen a `POST /api/projects/{id}/ai/generate`; el proxy autenticado la
+   reenvía a `POST /api/v1/image-to-3d/generate` o
+   `POST /api/v1/image-to-3d/generate-hq`, registra motor/artefacto y muestra el
+   GLB. InstantMesh requiere un entorno Python y pesos aparte; su configuración
+   está documentada en [apps/ai-service/README.md](../apps/ai-service/README.md).
+   Ambos motores comparten canonización, completado Poisson y validación de
+   GLB antes de subir al bucket privado.
+2. **Plano 2D** — PDF, DWG, DXF, JPG, PNG o WebP de hasta 20 MB. La vista
+   previa muestra imágenes y la primera página de PDF; DWG/DXF se identifican
+   por nombre porque el navegador no tiene un visor CAD. Next.js envía el
+   archivo a `POST /api/projects/{id}/ai/floorplan`, que lo reenvía a
+   `POST /api/v1/floorplan/analyze`.
+
+FastAPI extrae segmentos de muro del espacio modelo DXF solo en capas con
+nombres explícitos `WALL`, `MURO`, `PARED` o `PARTITION`; las capas `DOOR`/
+`PUERTA` y `WINDOW`/`VENTANA` se tratan como marcadores CAD explícitos de
+abertura. No se infieren aberturas en PDF ni en imágenes rasterizadas; sus
+muros se extruyen continuos. Se extruyen los tramos de muro a 2.6 m de altura,
+con 0.15 m de espesor; las puertas conservan un dintel a partir de 2.1 m y las
+ventanas dejan antepecho de 0.9 m y dintel desde 2.1 m.
+
+La extrusión CAD convierte las unidades declaradas en `$INSUNITS` a metros y
+rechaza planos sin unidades explícitas. Para raster se usa una escala
+aproximada de 100 píxeles por metro, por lo que el modelo debe calibrarse antes
+de considerarlo dimensionalmente exacto. DWG requiere ODA File Converter. El
+servicio almacena el JSON de geometría y el GLB en el bucket privado
+`models-3d/floorplans/`; la ruta autenticada valida el acceso al proyecto,
+registra el análisis y ambos artefactos en `AIAnalysis`/`ExportJob` y devuelve
+la URL firmada del GLB para el visor.
+
+Estos candidatos todavía requieren revisión/calibración y no se convierten
+automáticamente en entidades editables de `SceneDocument`.

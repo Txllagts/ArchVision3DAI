@@ -1,22 +1,21 @@
 export interface SniffResult {
-  mime:
-    | "image/png"
-    | "image/jpeg"
-    | "image/webp"
-    | "application/pdf";
+  mime: "image/png" | "image/jpeg" | "image/webp" | "application/pdf";
   extension: "png" | "jpg" | "webp" | "pdf";
   width: number | null;
   height: number | null;
 }
 
 export function sniff(data: Uint8Array): SniffResult | null {
-  // PNG — cabecera: 89 50 4E 47 0D 0A 1A 0A
   if (
     data.length >= 24 &&
     data[0] === 0x89 &&
     data[1] === 0x50 &&
     data[2] === 0x4e &&
-    data[3] === 0x47
+    data[3] === 0x47 &&
+    data[4] === 0x0d &&
+    data[5] === 0x0a &&
+    data[6] === 0x1a &&
+    data[7] === 0x0a
   ) {
     return {
       mime: "image/png",
@@ -26,13 +25,7 @@ export function sniff(data: Uint8Array): SniffResult | null {
     };
   }
 
-  // JPEG — cabecera: FF D8 FF
-  if (
-    data.length >= 3 &&
-    data[0] === 0xff &&
-    data[1] === 0xd8 &&
-    data[2] === 0xff
-  ) {
+  if (data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) {
     return {
       mime: "image/jpeg",
       extension: "jpg",
@@ -41,7 +34,6 @@ export function sniff(data: Uint8Array): SniffResult | null {
     };
   }
 
-  // WebP — RIFF....WEBP
   if (
     data.length >= 12 &&
     ascii(data, 0, 4) === "RIFF" &&
@@ -55,7 +47,6 @@ export function sniff(data: Uint8Array): SniffResult | null {
     };
   }
 
-  // PDF — cabecera: %PDF-
   if (data.length >= 5 && ascii(data, 0, 5) === "%PDF-") {
     return {
       mime: "application/pdf",
