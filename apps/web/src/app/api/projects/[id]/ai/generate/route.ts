@@ -11,7 +11,7 @@ interface RouteContext {
 }
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
-const AI_SERVICE_TIMEOUT_MS = 15 * 60 * 1000;
+const AI_SERVICE_TIMEOUT_MS = 20 * 60 * 1000;
 const ACCEPTED_IMAGE_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
 const EXTENSION_BY_IMAGE_TYPE: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -23,6 +23,7 @@ const generatedModelSchema = z.object({
   model_url: z.string().url(),
   storage_path: z.string().min(1),
   format: z.literal("glb"),
+  engine: z.enum(["triposr", "instantmesh"]).default("triposr"),
   processing_seconds: z.number().nonnegative(),
 });
 
@@ -32,6 +33,32 @@ type ServiceErrorCode =
   | "UPSTREAM_TIMEOUT"
   | "BAD_REQUEST"
   | "PAYLOAD_TOO_LARGE";
+
+async function isInstantMeshAvailable(
+  serviceUrl: string,
+  serviceToken: string,
+): Promise<boolean> {
+  try {
+    const response = await fetch(
+      `${serviceUrl.replace(/\/+$/, "")}/api/v1/capabilities`,
+      {
+        headers: { "X-AI-Service-Key": serviceToken },
+        cache: "no-store",
+        signal: AbortSignal.timeout(5_000),
+      },
+    );
+    if (!response.ok) return false;
+    const payload: unknown = await response.json();
+    return (
+      typeof payload === "object" &&
+      payload !== null &&
+      "instantmesh_available" in payload &&
+      payload.instantmesh_available === true
+    );
+  } catch {
+    return false;
+  }
+}
 
 class AIServiceError extends Error {
   constructor(
@@ -43,7 +70,10 @@ class AIServiceError extends Error {
   }
 }
 
-function getUpstreamError(status: number): AIServiceError {
+function getUpstreamError(status: number, detail?: string): AIServiceError {
+  if (detail && status >= 500) {
+    return new AIServiceError(detail, status === 503 ? "SERVICE_UNAVAILABLE" : "UPSTREAM_ERROR");
+  }
   if (status === 400 || status === 422) {
     return new AIServiceError(
       "El servicio no pudo procesar esta imagen. Prueba con un archivo JPG, PNG o WebP válido.",
@@ -77,6 +107,28 @@ async function markAnalysisFailed(analysisId: string, message: string) {
       error: message.slice(0, 500),
       finishedAt: new Date(),
     },
+  });
+}
+
+/** GET /api/projects/:id/ai/generate — informa si InstantMesh está listo. */
+export async function GET(_request: Request, context: RouteContext) {
+  return withErrorHandling("ai.generate.capabilities", async () => {
+    const user = await requireApiUser();
+    if (!user) return apiError("UNAUTHORIZED", "Sesion no iniciada");
+
+    const { id: projectId } = await context.params;
+    const project = await getProject(user.id, projectId);
+    if (!project) return apiError("NOT_FOUND", "Proyecto no encontrado");
+
+    const env = getEnv();
+    let available = false;
+    if (env.AI_SERVICE_URL && env.AI_SERVICE_TOKEN) {
+      available = await isInstantMeshAvailable(
+        env.AI_SERVICE_URL,
+        env.AI_SERVICE_TOKEN,
+      );
+    }
+    return apiSuccess({ instantMeshAvailable: available });
   });
 }
 
@@ -131,6 +183,25 @@ export async function POST(request: Request, context: RouteContext) {
     if (entry.size > MAX_UPLOAD_BYTES) {
       return apiError("PAYLOAD_TOO_LARGE", "La imagen supera el límite de 20 MB.");
     }
+    const requestedQuality = form.get("quality");
+    if (
+      requestedQuality !== null &&
+      (typeof requestedQuality !== "string" ||
+        (requestedQuality !== "standard" && requestedQuality !== "hq"))
+    ) {
+      return apiError("BAD_REQUEST", "El modo de calidad seleccionado no es válido.");
+    }
+    const quality: "standard" | "hq" =
+      requestedQuality === "hq" ? "hq" : "standard";
+    if (
+      quality === "hq" &&
+      !(await isInstantMeshAvailable(env.AI_SERVICE_URL, env.AI_SERVICE_TOKEN))
+    ) {
+      return apiError(
+        "SERVICE_UNAVAILABLE",
+        "Alta Calidad no está disponible porque InstantMesh no está configurado en el microservicio.",
+      );
+    }
 
     const analysis = await prisma.aIAnalysis.create({
       data: {
@@ -150,6 +221,10 @@ export async function POST(request: Request, context: RouteContext) {
       entry,
       `upload.${EXTENSION_BY_IMAGE_TYPE[entry.type]}`,
     );
+    const serviceEndpoint =
+      quality === "standard"
+        ? "/api/v1/image-to-3d/generate"
+        : "/api/v1/image-to-3d/generate-hq";
     const controller = new AbortController();
     const timeout = setTimeout(
       () => controller.abort(),
@@ -160,7 +235,7 @@ export async function POST(request: Request, context: RouteContext) {
       let upstream: Response;
       try {
         upstream = await fetch(
-          `${env.AI_SERVICE_URL.replace(/\/+$/, "")}/api/v1/image-to-3d/generate`,
+          `${env.AI_SERVICE_URL.replace(/\/+$/, "")}${serviceEndpoint}`,
           {
             method: "POST",
             headers: { "X-AI-Service-Key": env.AI_SERVICE_TOKEN },
@@ -184,7 +259,35 @@ export async function POST(request: Request, context: RouteContext) {
       }
 
       if (!upstream.ok) {
-        throw getUpstreamError(upstream.status);
+        let detail: string | undefined;
+        try {
+          const body: unknown = await upstream.json();
+          if (
+            typeof body === "object" &&
+            body !== null &&
+            "detail" in body
+          ) {
+            const rawDetail = body.detail;
+            if (typeof rawDetail === "string") {
+              detail = rawDetail;
+            } else if (
+              typeof rawDetail === "object" &&
+              rawDetail !== null &&
+              "message" in rawDetail
+            ) {
+              const message =
+                typeof rawDetail.message === "string" ? rawDetail.message : "";
+              const reason =
+                "reason" in rawDetail && typeof rawDetail.reason === "string"
+                  ? rawDetail.reason
+                  : "";
+              detail = [message, reason].filter(Boolean).join(" ");
+            }
+          }
+        } catch {
+          // The generic status-specific message below is used for non-JSON errors.
+        }
+        throw getUpstreamError(upstream.status, detail?.slice(0, 1500));
       }
 
       const responseBody: unknown = await upstream.json();
@@ -210,6 +313,7 @@ export async function POST(request: Request, context: RouteContext) {
             stage: "complete",
             resultJson: JSON.stringify({
               format: parsed.data.format,
+              engine: parsed.data.engine,
               storagePath: parsed.data.storage_path,
               processingSeconds: parsed.data.processing_seconds,
             }),
@@ -230,6 +334,7 @@ export async function POST(request: Request, context: RouteContext) {
       return apiSuccess({
         modelUrl: parsed.data.model_url,
         format: parsed.data.format,
+        engine: parsed.data.engine,
         processingSeconds: parsed.data.processing_seconds,
       });
     } catch (error) {

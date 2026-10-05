@@ -1,0 +1,36 @@
+--extra-index-url https://download.pytorch.org/whl/cu121
+
+fastapi==0.115.12
+uvicorn[standard]==0.34.2
+python-multipart==0.0.20
+python-dotenv==1.1.0
+pydantic-settings==2.8.1
+
+# RTX Ada / CUDA 12.1. Install in a Python 3.11 environment.
+torch==2.4.1+cu121
+torchvision==0.19.1+cu121
+
+# TripoSR runtime dependencies. The upstream repository itself is cloned separately.
+transformers==4.46.3
+huggingface-hub==0.30.2
+einops==0.8.1
+omegaconf==2.3.0
+trimesh==4.6.8
+open3d==0.19.0
+scipy==1.17.1
+pygltflib==1.16.4
+# torchmcubes was compiled and installed manually for the local CUDA environment.
+
+# RMBG-1.4 must be provided as an ONNX model compatible with rembg's u2net_custom session.
+rembg[gpu]==2.0.66
+onnxruntime-gpu==1.20.2
+supabase==2.15.1
+
+# Input conversion and optional 2D segmentation.
+Pillow==11.2.1
+numpy==1.26.4
+PyMuPDF==1.25.5
+ezdxf==1.4.2
+matplotlib==3.10.3
+opencv-python-headless==4.11.0.86
+ultralytics==8.3.152

@@ -24,6 +24,7 @@ storage/
 __pycache__/
 *.pyc
 .venv/
+apps/ai-service/models/*.onnx*
 
 # OS / editores
 .DS_Store
