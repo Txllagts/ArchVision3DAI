@@ -1,18 +1,15 @@
-# ArchVision 3D AI
+# 🏗️ ArchVision 3D AI
 
-Plataforma web para crear modelos 3D de viviendas y edificaciones a partir de
-fotografías, planos arquitectónicos, croquis y medidas del usuario.
+> Plataforma web para crear modelos 3D de viviendas y edificaciones a partir de fotografías, planos arquitectónicos, croquis y medidas del usuario.
 
-El principio del producto: **la inteligencia artificial ayuda a construir el
-modelo, pero el usuario mantiene el control completo sobre la geometría final**.
+**Principio de diseño:** la inteligencia artificial construye el modelo inicial, pero el usuario mantiene el control completo sobre la geometría final.
 
 ```
-Imagen / Plano → Análisis IA → Modelo inicial → Corrección humana
-              → Modelo paramétrico → Render / Exportación
+Imagen / Plano  →  Análisis IA  →  Modelo inicial  →  Corrección humana
+                                                    →  Modelo paramétrico  →  Render / Exportación
 ```
 
-> El nombre comercial vive en `packages/config/src/brand.ts` (o en la variable
-> `NEXT_PUBLIC_APP_NAME`). Cambiarlo ahí renombra toda la aplicación.
+> 💡 El nombre comercial vive en `packages/config/src/brand.ts` (o en la variable `NEXT_PUBLIC_APP_NAME`). Cambiarlo ahí renombra toda la aplicación.
 
 ---
 
@@ -46,25 +43,14 @@ la que llegan, nunca como enlaces muertos.
 5. Añadir columnas, escaleras paramétricas, cubiertas (plana, una pendiente,
    dos aguas, cuatro aguas) y mobiliario del catálogo.
 6. Ver las habitaciones detectadas automáticamente con su área y perímetro.
-7. Editar medidas exactas en el inspector, arrastrar nodos de pared, deshacer
-   y rehacer, y medir distancias.
-8. Aplicar materiales con textura (ladrillo, madera, ceramica, teja, marmol,
-   piedra, metal): arrastra una muestra sobre el modelo o carga el pincel con
-   `G` y haz clic. Puedes duplicar un material del catalogo y editar el tuyo.
-9. Importar un plano (PNG, JPG, WebP), fijar su escala con una medida conocida,
-   calcarlo por debajo del dibujo y detectar los muros automáticamente para
-   revisarlos y aceptarlos.
-10. Pedirle cambios al asistente con `A`: crea habitaciones, coloca vanos,
-    aplica materiales o levanta cubiertas. Nada se aplica sin que lo apruebes y
-    cada propuesta se deshace de un solo `Ctrl+Z`.
-11. Revisar el modelo: habitaciones sin acceso, vanos fuera del muro, muros
-    duplicados, poca luz natural, escaleras incómodas.
-12. Seguir el tutorial integrado, cuyos pasos se marcan solos a medida que
-    trabajas.
-13. Contratar un plan de pago (Pro o Studio, mensual o anual), cancelarlo o
-    reanudarlo desde Configuración → Facturación. Sin credenciales de pasarela
-    funciona una simulación que recorre el mismo camino.
-14. Todo se autoguarda; `Ctrl+K` abre la paleta de comandos.
+7. Editar medidas exactas en el inspector, arrastrar nodos de pared, deshacer/rehacer y medir distancias.
+8. Aplicar materiales con textura (ladrillo, madera, cerámica, teja, mármol, piedra, metal): arrastra una muestra sobre el modelo o carga el pincel con `G` y haz clic.
+9. Importar un plano (PNG, JPG, WebP), fijar su escala con una medida conocida y detectar los muros automáticamente.
+10. Pedirle cambios al asistente con `A`: crea habitaciones, coloca vanos, aplica materiales o levanta cubiertas. Nada se aplica sin aprobación y cada propuesta se deshace con `Ctrl+Z`.
+11. Revisar el modelo: habitaciones sin acceso, vanos fuera del muro, muros duplicados, poca luz natural, escaleras incómodas.
+12. Seguir el **tutorial integrado**, cuyos pasos se marcan solos a medida que trabajas.
+13. Contratar un plan de pago (Pro o Studio, mensual o anual) desde **Configuración → Facturación**.
+14. Todo se **autoguarda**; `Ctrl+K` abre la paleta de comandos.
 
 ### Pipeline de reconstrucción 3D
 
@@ -224,70 +210,101 @@ El pipeline y sus limitaciones están descritos con más detalle en
 
 ---
 
-## Requisitos
+## 🧰 Requisitos previos
 
-- Node.js 20.11 o superior (probado con Node 24).
-- pnpm 9 o superior.
-- Base de datos: SQLite en desarrollo (incluida, sin instalación) o PostgreSQL
-  en staging/producción.
+| Herramienta | Versión mínima | Notas |
+|-------------|---------------|-------|
+| [Node.js](https://nodejs.org/) | 20.11 | Probado con Node 24 |
+| [pnpm](https://pnpm.io/) | 9.0 | Gestor de paquetes del monorepo |
+| [Git](https://git-scm.com/) | Cualquier versión reciente | Para clonar el repositorio |
+| [Supabase](https://supabase.com/) | — | Base de datos PostgreSQL gestionada en la nube |
 
 ---
 
-## Puesta en marcha
+## 🚀 Puesta en marcha
+
+### 1. Clonar el repositorio
 
 ```bash
-# 1. Dependencias
+git clone https://github.com/JuanDavid-dev-lang/ArchVision3DAI.git
+cd ArchVision3DAI
+```
+
+### 2. Instalar dependencias
+
+```bash
 pnpm install
+```
 
-# 2. Variables de entorno
+### 3. Configurar variables de entorno
+
+```bash
 cp .env.example .env
-# Genera un secreto y pégalo en AUTH_SECRET:
+```
+
+Edita el archivo `.env` y completa las siguientes variables clave:
+
+| Variable | Descripción |
+|----------|-------------|
+| `DATABASE_URL` | URL del Transaction Pooler de Supabase (puerto `6543`) |
+| `DIRECT_URL` | URL del Session Pooler de Supabase (puerto `5432`) |
+| `AUTH_SECRET` | Secreto aleatorio para firmar sesiones |
+| `NEXT_PUBLIC_SUPABASE_URL` | URL pública de tu proyecto Supabase |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Clave anónima pública de Supabase |
+
+Para generar un `AUTH_SECRET` seguro:
+
+```bash
 node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+```
 
-# 3. Cliente de Prisma y esquema de base de datos
+> ⚠️ El archivo `.env` está en `.gitignore`. **Nunca lo subas al repositorio.**
+
+### 4. Generar el cliente de Prisma
+
+```bash
 pnpm db:generate
-pnpm --filter @archvision/database exec prisma migrate deploy
+```
 
-# 4. Datos de ejemplo (casa demo de dos plantas)
-pnpm db:seed
+> Ejecuta este comando siempre que instales dependencias por primera vez o cuando se actualice el esquema de base de datos.
 
-# 5. Servidor de desarrollo
+### 5. Iniciar el servidor de desarrollo
+
+```bash
 pnpm dev
 ```
 
-Aplicación en <http://localhost:3000>.
+Abre **<http://localhost:3000>** en tu navegador.
 
 **Cuenta de demostración:** `demo@archvision.app` / `arquitectura2026`
 
-### Notas de base de datos
+---
 
-- `prisma migrate dev` es interactivo; en scripts o terminales sin TTY usa
-  `prisma migrate deploy` (aplica el historial existente) o `prisma db push`
-  (sincroniza el esquema sin generar migración).
-- El historial de migraciones vive en `packages/database/prisma/migrations`.
-  Nunca se modifica la base de datos de producción a mano.
-- Para pasar a PostgreSQL: cambia `provider` en `schema.prisma`, ajusta
-  `DATABASE_URL`, borra el historial y genera una migración nueva. El esquema
-  evita a propósito tipos exclusivos de un motor.
+## 🗄️ Base de datos (Supabase + Prisma)
+
+La base de datos reside completamente en **Supabase** (PostgreSQL gestionado). No es necesario crear, migrar ni inicializar una base de datos local.
+
+- **`DATABASE_URL`** → apunta al **Transaction Pooler** (puerto `6543`, con `pgbouncer=true`) para consultas en runtime.
+- **`DIRECT_URL`** → apunta al **Session Pooler** (puerto `5432`) para operaciones de Prisma CLI que requieren conexión directa.
+- Para inspeccionar los datos visualmente: `pnpm db:studio` (abre Prisma Studio en el navegador).
 
 ---
 
-## Comandos
+## 📋 Referencia de comandos
 
 | Comando | Descripción |
-| --- | --- |
+|---------|-------------|
 | `pnpm dev` | Servidor de desarrollo de la aplicación web |
 | `pnpm build` | Compilación de producción |
-| `pnpm start` | Servidor de producción |
+| `pnpm start` | Servidor de producción (requiere build previo) |
 | `pnpm typecheck` | TypeScript estricto en todos los paquetes |
 | `pnpm test` | Pruebas unitarias (Vitest) |
-| `pnpm db:generate` | Genera el cliente de Prisma |
-| `pnpm db:seed` | Carga datos de ejemplo |
-| `pnpm db:studio` | Explorador visual de la base de datos |
+| `pnpm db:generate` | Genera el cliente tipado de Prisma |
+| `pnpm db:studio` | Explorador visual de la base de datos (Prisma Studio) |
 
 ---
 
-## Estructura
+## 📁 Estructura del monorepo
 
 ```
 apps/
@@ -310,22 +327,22 @@ Paquete previsto para fases siguientes: `ui`.
 
 ---
 
-## Documentación
+## 📚 Documentación
 
-- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — arquitectura general y decisiones.
-- [`docs/DATABASE.md`](docs/DATABASE.md) — modelo de datos.
-- [`docs/API.md`](docs/API.md) — API REST.
-- [`docs/EDITOR.md`](docs/EDITOR.md) — motor 3D, estado del editor y comandos.
-- [`docs/PLAN_IMPORT.md`](docs/PLAN_IMPORT.md) — importación de planos y detección de muros.
-- [`docs/ASSISTANT.md`](docs/ASSISTANT.md) — asistente, revisión del modelo y tutorial.
-- [`docs/BILLING.md`](docs/BILLING.md) — planes, suscripciones y cobros.
-- [`docs/AI_PIPELINE.md`](docs/AI_PIPELINE.md) — servicio de visión por computador.
-- [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) — entornos y despliegue.
+| Documento | Contenido |
+|-----------|-----------|
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Arquitectura general y decisiones de diseño |
+| [`docs/DATABASE.md`](docs/DATABASE.md) | Modelo de datos y entidades |
+| [`docs/API.md`](docs/API.md) | API REST |
+| [`docs/EDITOR.md`](docs/EDITOR.md) | Motor 3D, estado del editor y atajos de teclado |
+| [`docs/PLAN_IMPORT.md`](docs/PLAN_IMPORT.md) | Importación de planos y detección de muros |
+| [`docs/ASSISTANT.md`](docs/ASSISTANT.md) | Asistente IA, revisión del modelo y tutorial |
+| [`docs/BILLING.md`](docs/BILLING.md) | Planes, suscripciones y cobros |
+| [`docs/AI_PIPELINE.md`](docs/AI_PIPELINE.md) | Servicio de visión por computador |
+| [`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md) | Entornos y despliegue |
 
 ---
 
-## Aviso
+## ⚠️ Aviso
 
-Los modelos generados automáticamente a partir de fotografías pueden contener
-errores dimensionales. Verifique las medidas importantes antes de usarlas para
-construcción, presupuesto o trámites.
+Los modelos generados automáticamente a partir de fotografías pueden contener errores dimensionales. Verifique siempre las medidas importantes antes de usarlas para construcción, presupuesto o trámites.

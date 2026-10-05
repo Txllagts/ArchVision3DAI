@@ -28,11 +28,21 @@ export function CommandPalette({ onSave }: { onSave: () => void }) {
 
     return [
       { id: "tool-select", label: "Herramienta: seleccionar", hint: "V", run: () => store.setTool("select") },
+      { id: "tool-pan", label: "Herramienta: mover y rotar vista 3D", hint: "H", run: () => store.setTool("pan") },
       { id: "tool-wall", label: "Herramienta: crear pared", hint: "L", run: () => store.setTool("wall") },
       { id: "tool-door", label: "Herramienta: agregar puerta", hint: "P", run: () => store.setTool("door") },
       { id: "tool-window", label: "Herramienta: agregar ventana", hint: "N", run: () => store.setTool("window") },
       { id: "tool-measure", label: "Herramienta: medir", hint: "M", run: () => store.setTool("measure") },
       { id: "floor-add", label: "Agregar planta", run: () => store.dispatch({ type: "CREATE_FLOOR" }) },
+      {
+        id: "floor-delete",
+        label: "Eliminar planta actual",
+        run: () => {
+          if (floorId && store.scene.floors.length > 1) {
+            store.dispatch({ type: "DELETE_OBJECTS", ids: [floorId] });
+          }
+        },
+      },
       {
         id: "assistant",
         label: "Abrir el asistente",
@@ -66,6 +76,8 @@ export function CommandPalette({ onSave }: { onSave: () => void }) {
       { id: "view-fit", label: "Centrar modelo", hint: "F", run: () => store.requestView("fit") },
       { id: "undo", label: "Deshacer", hint: "Ctrl+Z", run: () => store.undo() },
       { id: "redo", label: "Rehacer", hint: "Ctrl+Shift+Z", run: () => store.redo() },
+      { id: "copy", label: "Copiar selección", hint: "Ctrl+C", run: () => store.copySelection() },
+      { id: "paste", label: "Pegar selección", hint: "Ctrl+V", run: () => store.pasteSelection() },
       { id: "save", label: "Guardar proyecto", hint: "Ctrl+S", run: onSave },
     ];
   }, [onSave]);

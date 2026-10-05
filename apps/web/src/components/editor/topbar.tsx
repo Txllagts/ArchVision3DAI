@@ -6,6 +6,8 @@ import {
   ArrowLeft,
   Box,
   Camera,
+  Clipboard,
+  Copy,
   Home,
   Layers,
   Maximize2,
@@ -16,6 +18,7 @@ import {
   Save,
   Sparkles,
   Square,
+  Trash2,
   Undo2,
 } from "lucide-react";
 import { Logo } from "@/components/brand/logo";
@@ -39,6 +42,10 @@ export function EditorTopBar({ onSave }: { onSave: () => void }) {
   const setAssistantOpen = useEditorStore((state) => state.setAssistantOpen);
   const undo = useEditorStore((state) => state.undo);
   const redo = useEditorStore((state) => state.redo);
+  const selection = useEditorStore((state) => state.selection);
+  const clipboard = useEditorStore((state) => state.clipboard);
+  const copySelection = useEditorStore((state) => state.copySelection);
+  const pasteSelection = useEditorStore((state) => state.pasteSelection);
   const dispatch = useEditorStore((state) => state.dispatch);
   const setActiveFloor = useEditorStore((state) => state.setActiveFloor);
   const setViewMode = useEditorStore((state) => state.setViewMode);
@@ -98,6 +105,26 @@ export function EditorTopBar({ onSave }: { onSave: () => void }) {
         >
           <Redo2 className="size-4" aria-hidden />
         </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={copySelection}
+          disabled={selection.length === 0}
+          title="Copiar selección (Ctrl+C)"
+          aria-label="Copiar selección"
+        >
+          <Copy className="size-4" aria-hidden />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={pasteSelection}
+          disabled={!clipboard}
+          title="Pegar selección (Ctrl+V)"
+          aria-label="Pegar selección"
+        >
+          <Clipboard className="size-4" aria-hidden />
+        </Button>
       </div>
 
       <div className="mx-1 h-5 w-px bg-line" />
@@ -125,6 +152,25 @@ export function EditorTopBar({ onSave }: { onSave: () => void }) {
           onClick={() => dispatch({ type: "CREATE_FLOOR" })}
         >
           <Plus className="size-4" aria-hidden />
+        </Button>
+        <Button
+          variant="ghost"
+          size="icon"
+          title={
+            scene.floors.length > 1
+              ? "Eliminar planta actual"
+              : "No se puede eliminar la única planta"
+          }
+          aria-label="Eliminar planta actual"
+          disabled={scene.floors.length <= 1}
+          onClick={() => {
+            if (activeFloorId && scene.floors.length > 1) {
+              dispatch({ type: "DELETE_OBJECTS", ids: [activeFloorId] });
+            }
+          }}
+          className="text-ink-muted hover:text-danger disabled:opacity-30"
+        >
+          <Trash2 className="size-4" aria-hidden />
         </Button>
       </div>
 

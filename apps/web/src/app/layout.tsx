@@ -1,6 +1,30 @@
 import type { Metadata, Viewport } from "next";
+import { Barlow, Barlow_Semi_Condensed, JetBrains_Mono } from "next/font/google";
 import { brand } from "@archvision/config";
 import "./globals.css";
+
+/* Tipografia del sistema (ver DESIGN.md): Barlow para texto, Semi Condensed
+ * para titulares y etiquetas, JetBrains Mono para medidas y cifras. */
+const barlow = Barlow({
+  subsets: ["latin"],
+  weight: ["400", "500", "600", "700"],
+  variable: "--font-barlow",
+  display: "swap",
+});
+
+const barlowCondensed = Barlow_Semi_Condensed({
+  subsets: ["latin"],
+  weight: ["500", "600", "700"],
+  variable: "--font-barlow-condensed",
+  display: "swap",
+});
+
+const jetbrains = JetBrains_Mono({
+  subsets: ["latin"],
+  weight: ["400", "500"],
+  variable: "--font-jetbrains",
+  display: "swap",
+});
 
 export const metadata: Metadata = {
   title: {
@@ -27,7 +51,10 @@ export default function RootLayout({
   // El tema oscuro es el predeterminado del producto (herramienta de diseno).
   // La preferencia por usuario se aplicara desde el store de UI en Fase 2.
   return (
-    <html lang="es" className="dark">
+    <html
+      lang="es"
+      className={`dark ${barlow.variable} ${barlowCondensed.variable} ${jetbrains.variable}`}
+    >
       <body className="min-h-screen bg-canvas text-ink antialiased">
         {children}
       </body>

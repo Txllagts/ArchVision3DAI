@@ -18,7 +18,7 @@ coverage/
 packages/database/prisma/dev.db*
 
 # Storage local (object storage emulado en dev)
-storage/
+.storage/
 
 # Python (ai-service)
 __pycache__/

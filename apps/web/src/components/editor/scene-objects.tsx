@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo } from "react";
-import { Edges } from "@react-three/drei";
+import { useMemo,Suspense } from "react";
+import { Edges, useGLTF } from "@react-three/drei";
 import type { ThreeEvent } from "@react-three/fiber";
-import { DoubleSide } from "three";
+import {Box3, DoubleSide, Group, Mesh, Vector3 } from "three";
 import {
   collectWallOpenings,
   columnGeometryKey,
@@ -11,6 +11,7 @@ import {
   createDoorLeafGeometry,
   createFrameGeometry,
   createGlassGeometry,
+  createFloorGeometry,
   createRoofGeometry,
   createSlabGeometry,
   createStairGeometry,
@@ -35,6 +36,7 @@ import type {
   Door,
   FurnitureInstance,
   Roof,
+  Room,
   SceneDocument,
   Slab,
   Stair,
@@ -343,6 +345,78 @@ export function SlabObject({
   );
 }
 
+// --------------------------------------------------------------------------
+// Suelo de habitacion
+// --------------------------------------------------------------------------
+
+/**
+ * Malla plana que representa el suelo de una habitacion detectada.
+ *
+ * Es una capa fina (2 mm) encima del nivel del piso para que sea visible
+ * sin competir con la losa estructural. Permite recibir materiales tanto
+ * por drag-drop como con el pincel en el visor 3D.
+ */
+export function RoomFloorObject({
+  room,
+  scene,
+  elevation,
+  selection,
+  hoveredId,
+  handlers,
+}: {
+  room: Room;
+  scene: SceneDocument;
+  elevation: number;
+  selection: Set<string>;
+  hoveredId: string | null;
+  handlers: PickHandlers;
+}) {
+  const FLOOR_THICKNESS = 0.002;
+  const polygonKey = room.polygon
+    .map((p) => `${p.x.toFixed(3)},${p.y.toFixed(3)}`)
+    .join(";");
+
+  const geometry = useMemo(
+    () =>
+      geometryCache.get(
+        `room-floor:${room.id}:${polygonKey}`,
+        () => createFloorGeometry(room.polygon, FLOOR_THICKNESS),
+      ),
+    // El poligono cambia cuando se rehacen las habitaciones
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [room.id, polygonKey],
+  );
+
+  const material = materialLibrary.resolveById(room.floorMaterialId, scene.materials);
+  const isSelected = selection.has(room.id);
+  const isHovered = hoveredId === room.id;
+
+  // Si no hay material asignado, se muestra transparente (invisible a la vista)
+  // para mantener la malla en el grafo de Three.js y permitir que el raycaster
+  // la detecte al arrastrar y soltar materiales (drag & drop) o usar el pincel.
+  return (
+    <mesh
+      geometry={geometry}
+      material={room.floorMaterialId ? material : undefined}
+      position={[0, elevation + 0.001, 0]}
+      receiveShadow
+      {...pickProps(room.id, handlers)}
+    >
+      {!room.floorMaterialId ? (
+        <meshStandardMaterial
+          color={isSelected ? "#22d3ee" : isHovered ? "#7dd3fc" : "#000000"}
+          transparent
+          opacity={isSelected ? 0.25 : isHovered ? 0.15 : 0}
+          depthWrite={false}
+          roughness={1}
+          metalness={0}
+        />
+      ) : null}
+      <Highlight selected={isSelected} hovered={isHovered} />
+    </mesh>
+  );
+}
+
 export function RoofObject({
   roof,
   scene,
@@ -488,6 +562,51 @@ export function ColumnObject({
  * Hasta que existan modelos GLB (fase 4) se representa con la caja de las
  * dimensiones reales del catalogo, suficiente para estudiar la distribucion.
  */
+function FurnitureModel({
+  url,
+  size,
+  scale,
+}: {
+  url: string;
+  size: { x: number; y: number; z: number };
+  scale: { x: number; y: number; z: number };
+}) {
+  const { scene } = useGLTF(url);
+
+  const holder = useMemo(() => {
+    const root = scene.clone(true);
+    root.traverse((o) => {
+      if ((o as Mesh).isMesh) {
+        o.castShadow = true;
+        o.receiveShadow = true;
+      }
+    });
+    const box = new Box3().setFromObject(root);
+    const dim = box.getSize(new Vector3());
+    const c = box.getCenter(new Vector3());
+    // Centra en X/Z y apoya la base en y = 0.
+    root.position.set(-c.x, -box.min.y, -c.z);
+    const g = new Group();
+    g.add(root);
+    // Ajusta el modelo a las medidas del catalogo.
+    g.scale.set(
+      dim.x > 0 ? size.x / dim.x : 1,
+      dim.y > 0 ? size.y / dim.y : 1,
+      dim.z > 0 ? size.z / dim.z : 1,
+    );
+    return g;
+  }, [scene, size.x, size.y, size.z]);
+
+  return (
+    <group
+      position={[0, -(size.y * scale.y) / 2, 0]}
+      scale={[scale.x, scale.y, scale.z]}
+    >
+      <primitive object={holder} />
+    </group>
+  );
+}
+
 export function FurnitureObject({
   item,
   elevation,
@@ -505,6 +624,8 @@ export function FurnitureObject({
 
   if (!item.visible) return null;
 
+  const modelUrl = catalog.modelUrl;
+
   return (
     <mesh
       position={[
@@ -513,8 +634,8 @@ export function FurnitureObject({
         item.position.z,
       ]}
       rotation={[item.rotation.x, item.rotation.y, item.rotation.z]}
-      castShadow
-      receiveShadow
+      castShadow={!modelUrl}
+      receiveShadow={!modelUrl}
       {...pickProps(item.id, handlers)}
     >
       <boxGeometry
@@ -524,7 +645,16 @@ export function FurnitureObject({
           catalog.size.z * item.scale.z,
         ]}
       />
-      <meshStandardMaterial color={catalog.color} roughness={0.7} metalness={0.05} />
+      {modelUrl ? (
+        <>
+          <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+          <Suspense fallback={null}>
+            <FurnitureModel url={modelUrl} size={catalog.size} scale={item.scale} />
+          </Suspense>
+        </>
+      ) : (
+        <meshStandardMaterial color={catalog.color} roughness={0.7} metalness={0.05} />
+      )}
       <Highlight selected={selection.has(item.id)} hovered={hoveredId === item.id} />
     </mesh>
   );
