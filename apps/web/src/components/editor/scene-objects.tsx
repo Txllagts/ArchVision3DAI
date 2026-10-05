@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo } from "react";
-import { Edges } from "@react-three/drei";
+import { useMemo,Suspense } from "react";
+import { Edges, useGLTF } from "@react-three/drei";
 import type { ThreeEvent } from "@react-three/fiber";
-import { DoubleSide } from "three";
+import {Box3, DoubleSide, Group, Mesh, Vector3 } from "three";
 import {
   collectWallOpenings,
   columnGeometryKey,
@@ -562,6 +562,51 @@ export function ColumnObject({
  * Hasta que existan modelos GLB (fase 4) se representa con la caja de las
  * dimensiones reales del catalogo, suficiente para estudiar la distribucion.
  */
+function FurnitureModel({
+  url,
+  size,
+  scale,
+}: {
+  url: string;
+  size: { x: number; y: number; z: number };
+  scale: { x: number; y: number; z: number };
+}) {
+  const { scene } = useGLTF(url);
+
+  const holder = useMemo(() => {
+    const root = scene.clone(true);
+    root.traverse((o) => {
+      if ((o as Mesh).isMesh) {
+        o.castShadow = true;
+        o.receiveShadow = true;
+      }
+    });
+    const box = new Box3().setFromObject(root);
+    const dim = box.getSize(new Vector3());
+    const c = box.getCenter(new Vector3());
+    // Centra en X/Z y apoya la base en y = 0.
+    root.position.set(-c.x, -box.min.y, -c.z);
+    const g = new Group();
+    g.add(root);
+    // Ajusta el modelo a las medidas del catalogo.
+    g.scale.set(
+      dim.x > 0 ? size.x / dim.x : 1,
+      dim.y > 0 ? size.y / dim.y : 1,
+      dim.z > 0 ? size.z / dim.z : 1,
+    );
+    return g;
+  }, [scene, size.x, size.y, size.z]);
+
+  return (
+    <group
+      position={[0, -(size.y * scale.y) / 2, 0]}
+      scale={[scale.x, scale.y, scale.z]}
+    >
+      <primitive object={holder} />
+    </group>
+  );
+}
+
 export function FurnitureObject({
   item,
   elevation,
@@ -579,6 +624,8 @@ export function FurnitureObject({
 
   if (!item.visible) return null;
 
+  const modelUrl = catalog.modelUrl;
+
   return (
     <mesh
       position={[
@@ -587,8 +634,8 @@ export function FurnitureObject({
         item.position.z,
       ]}
       rotation={[item.rotation.x, item.rotation.y, item.rotation.z]}
-      castShadow
-      receiveShadow
+      castShadow={!modelUrl}
+      receiveShadow={!modelUrl}
       {...pickProps(item.id, handlers)}
     >
       <boxGeometry
@@ -598,7 +645,16 @@ export function FurnitureObject({
           catalog.size.z * item.scale.z,
         ]}
       />
-      <meshStandardMaterial color={catalog.color} roughness={0.7} metalness={0.05} />
+      {modelUrl ? (
+        <>
+          <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+          <Suspense fallback={null}>
+            <FurnitureModel url={modelUrl} size={catalog.size} scale={item.scale} />
+          </Suspense>
+        </>
+      ) : (
+        <meshStandardMaterial color={catalog.color} roughness={0.7} metalness={0.05} />
+      )}
       <Highlight selected={selection.has(item.id)} hovered={hoveredId === item.id} />
     </mesh>
   );
