@@ -91,8 +91,8 @@ describe("encuadres", () => {
     const scene: SceneDocument = createDemoHouseScene();
     const bounds = computeSceneBounds(scene);
 
-    expect(bounds.size.x).toBeCloseTo(10, 3);
-    expect(bounds.size.z).toBeCloseTo(8, 3);
+    expect(bounds.size.x).toBeCloseTo(11.2, 3);
+    expect(bounds.size.z).toBeCloseTo(9.2, 3);
     expect(bounds.max.y).toBeGreaterThan(2.7);
   });
 

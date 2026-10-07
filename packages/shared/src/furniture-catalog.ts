@@ -24,7 +24,7 @@ export const FURNITURE_CATEGORY_LABELS: Record<FurnitureCategory, string> = {
   kitchen: "Cocina",
   dining: "Comedor",
   bedroom: "Dormitorio",
-  bathroom: "Bano",
+  bathroom: "Baño",
   office: "Oficina",
   outdoor: "Exterior",
   lighting: "Iluminacion",

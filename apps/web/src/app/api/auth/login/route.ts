@@ -26,12 +26,12 @@ export async function POST(request: Request) {
     if (!user) {
       // Coste de verificacion equivalente: no se revela si el correo existe.
       await fakeVerify();
-      return apiError("UNAUTHORIZED", "Correo o contrasena incorrectos");
+      return apiError("UNAUTHORIZED", "Correo o contraseña incorrectos");
     }
 
     const valid = await verifyPassword(password, user.passwordHash);
     if (!valid) {
-      return apiError("UNAUTHORIZED", "Correo o contrasena incorrectos");
+      return apiError("UNAUTHORIZED", "Correo o contraseña incorrectos");
     }
 
     await createSession(user.id, {

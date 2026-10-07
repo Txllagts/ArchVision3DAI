@@ -135,6 +135,10 @@ export function Viewport2D() {
     () => scene.columns.filter((column) => column.floorId === activeFloor?.id),
     [scene.columns, activeFloor?.id],
   );
+  const stairs = useMemo(
+    () => scene.stairs.filter((stair) => stair.floorId === activeFloor?.id),
+    [scene.stairs, activeFloor?.id],
+  );
   const furniture = useMemo(
     () => scene.furniture.filter((item) => item.floorId === activeFloor?.id),
     [scene.furniture, activeFloor?.id],
@@ -436,13 +440,14 @@ export function Viewport2D() {
       collect("window", scene.windows);
       collect("opening", scene.openings);
       collect("column", columns);
+      collect("stair", stairs);
       collect("room", rooms);
       collect("furniture", furniture);
       select(ids, event.shiftKey);
     }
 
     setDrag(null);
-  }, [activeFloor?.id, columns, dispatch, drag, furniture, rooms, scene, select, toWorld, walls]);
+  }, [activeFloor?.id, columns, dispatch, drag, furniture, rooms, scene, select, stairs, toWorld, walls]);
 
   const handleWheel = useCallback(
     (event: ReactWheelEvent<SVGSVGElement>) => {
@@ -891,6 +896,126 @@ export function Viewport2D() {
                 select([column.id], event.shiftKey);
               }}
             />
+          );
+        })}
+
+        {/* Escaleras */}
+        {stairs.map((stair) => {
+          const offset =
+            drag?.kind === "wall" && drag.ids.includes(stair.id)
+              ? { x: drag.delta.x * view.scale, y: drag.delta.y * view.scale }
+              : { x: 0, y: 0 };
+          const [baseX, baseY] = toScreen(stair.position);
+          const cx = baseX + offset.x;
+          const cy = baseY + offset.y;
+          const widthPx = Math.max(8, stair.width * view.scale);
+          const stepLengthPx = Math.max(3, stair.tread * view.scale);
+          const stepsCount = Math.max(2, Math.round(stair.steps));
+          const totalLengthPx = stepsCount * stepLengthPx;
+          const rotationDeg = (stair.rotationY * 180) / Math.PI;
+          const isSelected = selection.has(stair.id);
+          const isHovered = hoveredId === stair.id;
+
+          return (
+            <g
+              key={stair.id}
+              transform={`translate(${cx}, ${cy}) rotate(${rotationDeg})`}
+              style={{ cursor: tool === "select" ? "pointer" : "default" }}
+              onPointerEnter={() => setHovered(stair.id)}
+              onPointerLeave={() => setHovered(null)}
+              onPointerDown={(event) => {
+                if (tool !== "select" || event.button !== 0) return;
+                event.stopPropagation();
+                const wasSelected = selection.has(stair.id);
+                const ids =
+                  wasSelected && selectionList.length > 1
+                    ? [...selectionList]
+                    : [stair.id];
+                if (!wasSelected || event.shiftKey) select([stair.id], event.shiftKey);
+                const raw = toWorld(event.clientX, event.clientY);
+                setDrag({
+                  kind: "wall",
+                  wallId: stair.id,
+                  ids,
+                  origin: raw,
+                  delta: { x: 0, y: 0 },
+                });
+              }}
+            >
+              {/* Contorno de la escalera */}
+              <rect
+                x={-widthPx / 2}
+                y={0}
+                width={widthPx}
+                height={totalLengthPx}
+                fill={
+                  isSelected
+                    ? "rgba(34, 211, 238, 0.25)"
+                    : isHovered
+                      ? "rgba(125, 211, 252, 0.18)"
+                      : "rgba(39, 53, 70, 0.85)"
+                }
+                stroke={isSelected ? "#22d3ee" : isHovered ? "#7dd3fc" : "#64748b"}
+                strokeWidth={isSelected ? 2 : 1.5}
+                rx={1}
+              />
+
+              {/* Peldaños individuales */}
+              {Array.from({ length: stepsCount - 1 }, (_, i) => {
+                const stepY = (i + 1) * stepLengthPx;
+                return (
+                  <line
+                    key={i}
+                    x1={-widthPx / 2}
+                    y1={stepY}
+                    x2={widthPx / 2}
+                    y2={stepY}
+                    stroke={isSelected ? "#22d3ee" : "#475569"}
+                    strokeWidth={1}
+                  />
+                );
+              })}
+
+              {/* Flecha de dirección / subida (simbología arquitectónica) */}
+              <g className="pointer-events-none" opacity={0.9}>
+                {/* Línea central */}
+                <line
+                  x1={0}
+                  y1={stepLengthPx * 0.5}
+                  x2={0}
+                  y2={totalLengthPx - 8}
+                  stroke={isSelected ? "#22d3ee" : "#38bdf8"}
+                  strokeWidth={1.5}
+                />
+                {/* Círculo de inicio de subida */}
+                <circle
+                  cx={0}
+                  cy={stepLengthPx * 0.5}
+                  r={3}
+                  fill={isSelected ? "#22d3ee" : "#38bdf8"}
+                />
+                {/* Punta de flecha de subida */}
+                <polygon
+                  points={`0,${totalLengthPx - 2} -4,${totalLengthPx - 10} 4,${totalLengthPx - 10}`}
+                  fill={isSelected ? "#22d3ee" : "#38bdf8"}
+                />
+                {/* Texto de subida si hay suficiente escala */}
+                {view.scale > 18 ? (
+                  <text
+                    x={0}
+                    y={totalLengthPx / 2}
+                    textAnchor="middle"
+                    fill={isSelected ? "#22d3ee" : "#94a3b8"}
+                    fontSize={Math.min(10, widthPx * 0.28)}
+                    fontWeight={600}
+                    letterSpacing={1}
+                    transform={`rotate(-90 0 ${totalLengthPx / 2})`}
+                  >
+                    SUBE
+                  </text>
+                ) : null}
+              </g>
+            </g>
           );
         })}
 

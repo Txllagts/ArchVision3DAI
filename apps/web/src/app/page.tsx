@@ -69,7 +69,7 @@ const USE_CASES = [
   { title: "Remodelaciones", body: "Levanta el estado actual desde fotos y presenta la propuesta al cliente en la misma sesion." },
   { title: "Bienes raices", body: "Convierte un plano de venta en un recorrido 3D navegable desde el navegador." },
   { title: "Estudios de arquitectura", body: "Anteproyectos rapidos con areas, cantidades aproximadas y renders de presentacion." },
-  { title: "Docencia", body: "Ensena composicion espacial sin la curva de aprendizaje de un CAD profesional." },
+  { title: "Docencia", body: "Enseña composicion espacial sin la curva de aprendizaje de un CAD profesional." },
 ];
 
 const FAQ = [
@@ -110,31 +110,31 @@ export default async function LandingPage() {
   return (
     <div className="min-h-screen bg-canvas">
       <LandingHeader>
-        <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 md:px-8">
-          <Logo />
-          <nav className="hidden items-center gap-7 text-sm text-ink-muted md:flex">
+        <div className="mx-auto flex h-20 max-w-6xl items-center justify-between px-4 md:px-8">
+          <Logo size="md" />
+          <nav className="hidden items-center gap-9 text-[15px] font-medium text-ink-muted md:flex">
             {NAV.map((link) => (
               <a
                 key={link.href}
                 href={link.href}
-                className="relative py-1 transition-colors duration-200 after:absolute after:inset-x-0 after:-bottom-0.5 after:h-px after:origin-left after:scale-x-0 after:bg-accent after:transition-transform after:duration-300 after:ease-[cubic-bezier(0.16,1,0.3,1)] hover:text-ink hover:after:scale-x-100"
+                className="relative py-1.5 transition-colors duration-200 after:absolute after:inset-x-0 after:-bottom-0.5 after:h-px after:origin-left after:scale-x-0 after:bg-accent after:transition-transform after:duration-300 after:ease-[cubic-bezier(0.16,1,0.3,1)] hover:text-white hover:after:scale-x-100"
               >
                 {link.label}
               </a>
             ))}
           </nav>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-3">
             {user ? (
               <Link href="/dashboard">
-                <Button size="sm">Dashboard</Button>
+                <Button size="md" className="font-semibold shadow-sm">Dashboard</Button>
               </Link>
             ) : (
               <>
                 <Link href="/login">
-                  <Button size="sm" variant="ghost">Iniciar sesion</Button>
+                  <Button size="md" variant="ghost">Iniciar sesión</Button>
                 </Link>
                 <Link href="/register">
-                  <Button size="sm">Crear cuenta</Button>
+                  <Button size="md">Crear cuenta</Button>
                 </Link>
               </>
             )}
@@ -143,7 +143,7 @@ export default async function LandingPage() {
       </LandingHeader>
 
       {/* Hero: se traza como un plano (reticula, titular, linea de cota). */}
-      <section className="relative -mt-16 overflow-hidden border-b border-line pt-16">
+      <section className="relative -mt-20 overflow-hidden border-b border-line pt-20">
         <div aria-hidden className="hero-grid blueprint-grid-lg absolute inset-0" />
         <div aria-hidden className="absolute inset-0 opacity-30">
           <div className="hero-grid blueprint-grid absolute inset-0" />
@@ -368,13 +368,19 @@ export default async function LandingPage() {
       </section>
 
       <footer className="border-t border-line bg-surface/40">
-        <div className="mx-auto flex max-w-6xl flex-col gap-3 px-4 py-8 text-xs text-ink-subtle md:flex-row md:items-center md:justify-between md:px-8">
+        <div className="mx-auto flex max-w-6xl flex-col gap-4 px-4 py-8 text-xs text-ink-subtle md:flex-row md:items-center md:justify-between md:px-8">
           <Logo />
-          <p>
-            {brand.company} - {brand.foundedYear}. Los modelos generados
-            automaticamente pueden contener errores dimensionales; verifica las
+          <p className="max-w-xl">
+            {brand.name} · {brand.foundedYear}. Los modelos generados
+            automáticamente pueden contener errores dimensionales; verifica las
             medidas importantes.
           </p>
+          <Link
+            href="/terms"
+            className="text-ink-muted hover:text-accent hover:underline transition-colors whitespace-nowrap"
+          >
+            Términos y Condiciones (SaaS)
+          </Link>
         </div>
       </footer>
     </div>

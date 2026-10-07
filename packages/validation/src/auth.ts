@@ -12,13 +12,13 @@ export const emailSchema = z
 
 export const passwordSchema = z
   .string()
-  .min(10, "La contrasena debe tener al menos 10 caracteres")
-  .max(200, "La contrasena es demasiado larga")
+  .min(10, "La contraseña debe tener al menos 10 caracteres")
+  .max(200, "La contraseña es demasiado larga")
   .refine((value) => /[a-zA-Z]/.test(value), {
-    message: "La contrasena debe incluir al menos una letra",
+    message: "La contraseña debe incluir al menos una letra",
   })
   .refine((value) => /\d/.test(value), {
-    message: "La contrasena debe incluir al menos un numero",
+    message: "La contraseña debe incluir al menos un número",
   });
 
 export const registerSchema = z.object({
@@ -29,7 +29,7 @@ export const registerSchema = z.object({
 
 export const loginSchema = z.object({
   email: emailSchema,
-  password: z.string().min(1, "Introduce tu contrasena").max(200),
+  password: z.string().min(1, "Introduce tu contraseña").max(200),
 });
 
 export const requestPasswordResetSchema = z.object({
