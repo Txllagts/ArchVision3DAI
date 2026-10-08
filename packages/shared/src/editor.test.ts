@@ -391,6 +391,37 @@ describe("deteccion de habitaciones", () => {
     const rooms = recomputeRooms(scene);
     expect(rooms.length).toBeGreaterThanOrEqual(5);
   });
+
+  it("traslada y gira escaleras mediante TRANSFORM_OBJECTS", () => {
+    const scene = createDefaultScene();
+    const floorId = scene.floors[0]!.id;
+
+    const withStair = applyCommand(scene, {
+      type: "CREATE_STAIR",
+      floorId,
+      kind: "straight",
+      position: { x: 2, y: 3 },
+    });
+
+    const stair = withStair.stairs[0]!;
+    expect(stair.position).toEqual({ x: 2, y: 3 });
+
+    // Traslacion lateral
+    const moved = applyCommand(withStair, {
+      type: "TRANSFORM_OBJECTS",
+      ids: [stair.id],
+      translate: { x: 1.5, y: 0, z: -0.5 },
+    });
+    expect(moved.stairs[0]!.position).toEqual({ x: 3.5, y: 2.5 });
+
+    // Rotacion
+    const rotated = applyCommand(moved, {
+      type: "TRANSFORM_OBJECTS",
+      ids: [stair.id],
+      rotateY: Math.PI / 2,
+    });
+    expect(rotated.stairs[0]!.rotationY).toBeCloseTo(Math.PI / 2, 5);
+  });
 });
 
 describe("metricas", () => {

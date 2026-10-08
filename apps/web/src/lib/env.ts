@@ -24,12 +24,12 @@ const serverEnvSchema = z.object({
   AI_MODE: z.enum(["mock", "live"]).default("mock"),
   /**
    * Motor del asistente. `local` resuelve con reglas dentro del proceso y no
-   * necesita clave ni conexion; `claude` delega en el modelo de lenguaje
-   * cuando las reglas no encuentran respuesta. Si falta la clave, `claude`
-   * degrada a `local` en vez de fallar: el asistente nunca deja de funcionar.
+   * necesita clave ni conexion; `claude` delega en el modelo de Anthropic;
+   * `ollama` delega en un modelo local servido por Ollama (ej. qwen2.5:7b).
    */
-  ASSISTANT_PROVIDER: z.enum(["local", "claude"]).default("local"),
+  ASSISTANT_PROVIDER: z.enum(["local", "claude", "ollama"]).default("local"),
   ANTHROPIC_API_KEY: z.preprocess(emptyToUndefined, z.string().min(1).optional()),
+  OLLAMA_BASE_URL: z.string().url().default("http://localhost:11434"),
   ASSISTANT_MODEL: z.string().min(1).default("claude-opus-5"),
 
   /**

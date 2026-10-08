@@ -109,6 +109,32 @@ export function Outliner() {
                     {floor.elevation.toFixed(2)} m
                   </span>
                 </button>
+                <button
+                  type="button"
+                  aria-label={floor.visible ? `Ocultar ${floor.name}` : `Mostrar ${floor.name}`}
+                  title={floor.visible ? `Ocultar ${floor.name}` : `Mostrar ${floor.name}`}
+                  className={cn(
+                    "transition-opacity",
+                    floor.visible
+                      ? "opacity-0 group-hover/floor:opacity-100 text-ink-muted hover:text-ink"
+                      : "opacity-100 text-warn"
+                  )}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    dispatch({
+                      type: "SET_VISIBILITY",
+                      ids: [floor.id],
+                      visible: !floor.visible,
+                    });
+                  }}
+                >
+                  {floor.visible ? (
+                    <Eye className="size-3.5" aria-hidden />
+                  ) : (
+                    <EyeOff className="size-3.5 text-warn" aria-hidden />
+                  )}
+                </button>
+
                 {scene.floors.length > 1 ? (
                   <button
                     type="button"
@@ -199,7 +225,12 @@ export function Outliner() {
                                 type="button"
                                 aria-label={item.visible ? "Ocultar" : "Mostrar"}
                                 title={item.visible ? "Ocultar" : "Mostrar"}
-                                className="opacity-0 transition-opacity group-hover:opacity-100"
+                                className={cn(
+                                  "transition-opacity",
+                                  item.visible
+                                    ? "opacity-0 group-hover:opacity-100"
+                                    : "opacity-100"
+                                )}
                                 onClick={() =>
                                   dispatch({
                                     type: "SET_VISIBILITY",
@@ -219,7 +250,12 @@ export function Outliner() {
                                 type="button"
                                 aria-label={item.locked ? "Desbloquear" : "Bloquear"}
                                 title={item.locked ? "Desbloquear" : "Bloquear"}
-                                className="opacity-0 transition-opacity group-hover:opacity-100"
+                                className={cn(
+                                  "transition-opacity",
+                                  item.locked
+                                    ? "opacity-0 group-hover:opacity-100 text-warn opacity-100"
+                                    : "opacity-0 group-hover:opacity-100"
+                                )}
                                 onClick={() =>
                                   dispatch({
                                     type: "SET_LOCK",

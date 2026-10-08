@@ -10,6 +10,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from "react";
+import { Layers } from "lucide-react";
 import type { MaterialDefinition, SceneDocument, Vector2, Wall } from "@archvision/types";
 import {
   distance2,
@@ -52,6 +53,13 @@ type DragState =
       ids: string[];
       origin: Vector2;
       delta: Vector2;
+    }
+  | {
+      kind: "stairRotate";
+      stairId: string;
+      origin: Vector2;
+      startAngle: number;
+      currentAngle: number;
     }
   | { kind: "marquee"; origin: Vector2; current: Vector2 }
   | null;
@@ -108,6 +116,7 @@ export function Viewport2D() {
   const furnitureCatalogId = useEditorStore((state) => state.furnitureCatalogId);
   const measure = useEditorStore((state) => state.measure);
   const dispatch = useEditorStore((state) => state.dispatch);
+  const setActiveFloor = useEditorStore((state) => state.setActiveFloor);
   const select = useEditorStore((state) => state.select);
   const paintMaterial = useEditorStore((state) => state.paintMaterial);
   const setHovered = useEditorStore((state) => state.setHovered);
@@ -373,6 +382,18 @@ export function Viewport2D() {
         return;
       }
 
+      if (drag.kind === "stairRotate") {
+        const vx = raw.x - drag.origin.x;
+        const vy = raw.y - drag.origin.y;
+        let angle = Math.atan2(vx, vy);
+        if (event.shiftKey) {
+          const snapRad = (15 * Math.PI) / 180;
+          angle = Math.round(angle / snapRad) * snapRad;
+        }
+        setDrag({ ...drag, currentAngle: angle });
+        return;
+      }
+
       if (drag.kind === "marquee") {
         setDrag({ ...drag, current: raw });
       }
@@ -397,6 +418,17 @@ export function Viewport2D() {
         ids: drag.ids,
         translate: { x: drag.delta.x, y: 0, z: drag.delta.y },
       });
+    }
+
+    if (drag.kind === "stairRotate") {
+      const deltaAngle = drag.currentAngle - drag.startAngle;
+      if (Math.abs(deltaAngle) > 0.001) {
+        dispatch({
+          type: "TRANSFORM_OBJECTS",
+          ids: [drag.stairId],
+          rotateY: deltaAngle,
+        });
+      }
     }
 
     if (drag.kind === "marquee") {
@@ -901,10 +933,16 @@ export function Viewport2D() {
 
         {/* Escaleras */}
         {stairs.map((stair) => {
-          const offset =
-            drag?.kind === "wall" && drag.ids.includes(stair.id)
-              ? { x: drag.delta.x * view.scale, y: drag.delta.y * view.scale }
-              : { x: 0, y: 0 };
+          const isRotating = drag?.kind === "stairRotate" && drag.stairId === stair.id;
+          const rotationDeg = isRotating
+            ? (-drag.currentAngle * 180) / Math.PI
+            : (-stair.rotationY * 180) / Math.PI;
+
+          const isDraggingThis = drag?.kind === "wall" && drag.ids.includes(stair.id);
+          const offset = isDraggingThis
+            ? { x: drag.delta.x * view.scale, y: drag.delta.y * view.scale }
+            : { x: 0, y: 0 };
+
           const [baseX, baseY] = toScreen(stair.position);
           const cx = baseX + offset.x;
           const cy = baseY + offset.y;
@@ -912,7 +950,6 @@ export function Viewport2D() {
           const stepLengthPx = Math.max(3, stair.tread * view.scale);
           const stepsCount = Math.max(2, Math.round(stair.steps));
           const totalLengthPx = stepsCount * stepLengthPx;
-          const rotationDeg = (stair.rotationY * 180) / Math.PI;
           const isSelected = selection.has(stair.id);
           const isHovered = hoveredId === stair.id;
 
@@ -1015,6 +1052,193 @@ export function Viewport2D() {
                   </text>
                 ) : null}
               </g>
+
+              {/* Tiradores interactivos para mover de los lados y rotar en modo Selección */}
+              {tool === "select" && (isSelected || isHovered) ? (
+                <g className="stair-handles">
+                  {/* Guía visual del eje lateral */}
+                  <line
+                    x1={-widthPx / 2 - 12}
+                    y1={totalLengthPx / 2}
+                    x2={widthPx / 2 + 12}
+                    y2={totalLengthPx / 2}
+                    stroke="#22d3ee"
+                    strokeWidth={1}
+                    strokeDasharray="3 3"
+                    opacity={0.8}
+                  />
+
+                  {/* Tirador Lado Izquierdo */}
+                  <g
+                    transform={`translate(${-widthPx / 2}, ${totalLengthPx / 2})`}
+                    style={{ cursor: "ew-resize" }}
+                    onPointerDown={(event) => {
+                      if (event.button !== 0) return;
+                      event.stopPropagation();
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                      if (!isSelected || event.shiftKey) select([stair.id], event.shiftKey);
+                      const raw = toWorld(event.clientX, event.clientY);
+                      setDrag({
+                        kind: "wall",
+                        wallId: stair.id,
+                        ids: [stair.id],
+                        origin: raw,
+                        delta: { x: 0, y: 0 },
+                      });
+                    }}
+                  >
+                    <circle r={6} fill="#0b1620" stroke="#22d3ee" strokeWidth={2} />
+                    <path
+                      d="M-3,0 L-1,-2 M-3,0 L-1,2"
+                      stroke="#22d3ee"
+                      strokeWidth={1.5}
+                      fill="none"
+                    />
+                  </g>
+
+                  {/* Tirador Lado Derecho */}
+                  <g
+                    transform={`translate(${widthPx / 2}, ${totalLengthPx / 2})`}
+                    style={{ cursor: "ew-resize" }}
+                    onPointerDown={(event) => {
+                      if (event.button !== 0) return;
+                      event.stopPropagation();
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                      if (!isSelected || event.shiftKey) select([stair.id], event.shiftKey);
+                      const raw = toWorld(event.clientX, event.clientY);
+                      setDrag({
+                        kind: "wall",
+                        wallId: stair.id,
+                        ids: [stair.id],
+                        origin: raw,
+                        delta: { x: 0, y: 0 },
+                      });
+                    }}
+                  >
+                    <circle r={6} fill="#0b1620" stroke="#22d3ee" strokeWidth={2} />
+                    <path
+                      d="M3,0 L1,-2 M3,0 L1,2"
+                      stroke="#22d3ee"
+                      strokeWidth={1.5}
+                      fill="none"
+                    />
+                  </g>
+
+                  {/* Tirador Superior / Inicio */}
+                  <circle
+                    cx={0}
+                    cy={0}
+                    r={5}
+                    fill="#0b1620"
+                    stroke="#22d3ee"
+                    strokeWidth={1.5}
+                    style={{ cursor: "ns-resize" }}
+                    onPointerDown={(event) => {
+                      if (event.button !== 0) return;
+                      event.stopPropagation();
+                      if (!isSelected || event.shiftKey) select([stair.id], event.shiftKey);
+                      const raw = toWorld(event.clientX, event.clientY);
+                      setDrag({
+                        kind: "wall",
+                        wallId: stair.id,
+                        ids: [stair.id],
+                        origin: raw,
+                        delta: { x: 0, y: 0 },
+                      });
+                    }}
+                  />
+
+                  {/* Tirador Inferior / Fin */}
+                  <circle
+                    cx={0}
+                    cy={totalLengthPx}
+                    r={5}
+                    fill="#0b1620"
+                    stroke="#22d3ee"
+                    strokeWidth={1.5}
+                    style={{ cursor: "ns-resize" }}
+                    onPointerDown={(event) => {
+                      if (event.button !== 0) return;
+                      event.stopPropagation();
+                      if (!isSelected || event.shiftKey) select([stair.id], event.shiftKey);
+                      const raw = toWorld(event.clientX, event.clientY);
+                      setDrag({
+                        kind: "wall",
+                        wallId: stair.id,
+                        ids: [stair.id],
+                        origin: raw,
+                        delta: { x: 0, y: 0 },
+                      });
+                    }}
+                  />
+
+                  {/* Tirador de Giro 2D (nodo superior con linea discontinuada) */}
+                  <g
+                    transform="translate(0, -22)"
+                    style={{ cursor: "grab" }}
+                    onPointerDown={(event) => {
+                      if (event.button !== 0) return;
+                      event.stopPropagation();
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                      if (!isSelected || event.shiftKey) select([stair.id], event.shiftKey);
+                      const raw = toWorld(event.clientX, event.clientY);
+                      const vx = raw.x - stair.position.x;
+                      const vy = raw.y - stair.position.y;
+                      const currentAngle = Math.atan2(vx, vy);
+                      setDrag({
+                        kind: "stairRotate",
+                        stairId: stair.id,
+                        origin: stair.position,
+                        startAngle: stair.rotationY,
+                        currentAngle,
+                      });
+                    }}
+                  >
+                    <line
+                      x1={0}
+                      y1={22}
+                      x2={0}
+                      y2={6}
+                      stroke="#22d3ee"
+                      strokeWidth={1.5}
+                      strokeDasharray="2 2"
+                    />
+                    <circle r={6} fill="#22d3ee" stroke="#0b1620" strokeWidth={1.5} />
+                    <path
+                      d="M-3,-1 A3,3 0 1,1 3,-1"
+                      fill="none"
+                      stroke="#0b1620"
+                      strokeWidth={1.2}
+                    />
+                  </g>
+                </g>
+              ) : null}
+
+              {/* Indicador de cota/desplazamiento en tiempo real al arrastrar de los lados */}
+              {isDraggingThis && (drag.delta.x !== 0 || drag.delta.y !== 0) ? (
+                <g className="pointer-events-none" transform={`rotate(${-rotationDeg})`}>
+                  <rect
+                    x={widthPx / 2 + 10}
+                    y={totalLengthPx / 2 - 12}
+                    width={70}
+                    height={20}
+                    rx={4}
+                    fill="rgba(11, 22, 32, 0.9)"
+                    stroke="#22d3ee"
+                    strokeWidth={1}
+                  />
+                  <text
+                    x={widthPx / 2 + 45}
+                    y={totalLengthPx / 2 + 2}
+                    textAnchor="middle"
+                    fill="#22d3ee"
+                    fontSize={10}
+                    fontWeight={600}
+                  >
+                    {formatLength(Math.hypot(drag.delta.x, drag.delta.y), units)}
+                  </text>
+                </g>
+              ) : null}
             </g>
           );
         })}
@@ -1186,6 +1410,35 @@ export function Viewport2D() {
           />
         ) : null}
       </svg>
+
+      {/* Cartel de ayuda cuando Vista completa esta activa */}
+      {activeFloorId === null ? (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#0d1117]/85 p-6 backdrop-blur-sm text-center">
+          <div className="flex max-w-sm flex-col items-center gap-3 rounded-xl border border-line bg-surface/95 p-6 shadow-2xl">
+            <div className="grid size-12 place-items-center rounded-full bg-accent/15 text-accent">
+              <Layers className="size-6" aria-hidden />
+            </div>
+            <h3 className="text-base font-semibold text-ink">
+              Vista completa seleccionada
+            </h3>
+            <p className="text-xs text-ink-subtle leading-relaxed">
+              Selecciona un piso para poder ver y editar la gráfica en 2D.
+            </p>
+            <div className="mt-2 flex flex-wrap justify-center gap-2">
+              {scene.floors.map((floor) => (
+                <button
+                  key={floor.id}
+                  type="button"
+                  onClick={() => setActiveFloor(floor.id)}
+                  className="rounded-md border border-line bg-surface-2 px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:border-accent hover:bg-accent/15 hover:text-accent"
+                >
+                  {floor.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* Indicadores del encuadre */}
       <div className="pointer-events-none absolute bottom-2 left-2 flex items-center gap-3 rounded border border-line bg-surface/85 px-2 py-1 font-mono text-[10px] text-ink-subtle">

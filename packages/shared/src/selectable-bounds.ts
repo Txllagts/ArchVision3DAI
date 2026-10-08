@@ -218,11 +218,14 @@ const boundsByKind: BoundsResolverMap = {
   },
   stair: (stair, scene) => {
     const depth = Math.max(stair.tread * stair.steps, stair.width);
+    const halfDepth = depth / 2;
+    const centerX = stair.position.x + halfDepth * Math.sin(stair.rotationY);
+    const centerZ = stair.position.y + halfDepth * Math.cos(stair.rotationY);
     return rectangularBounds(
       {
-        x: stair.position.x,
+        x: centerX,
         y: elevationOf(scene, stair.floorId) + stair.totalRise / 2,
-        z: stair.position.y,
+        z: centerZ,
       },
       { x: stair.width, y: stair.totalRise, z: depth },
       stair.rotationY,
