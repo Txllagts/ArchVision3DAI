@@ -70,6 +70,9 @@ function validateFile(file: File, mode: GenerationMode): string | null {
       ? "Para crear un objeto, selecciona una imagen JPG, PNG o WebP."
       : "Formato no admitido. Usa PDF, DWG, DXF, JPG, PNG o WebP.";
   }
+  if (file.size === 0) {
+    return "El archivo está vacío.";
+  }
   if (file.size > MAX_UPLOAD_BYTES) {
     return "El archivo supera el límite de 20 MB.";
   }

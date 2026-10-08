@@ -26,6 +26,9 @@ rembg[gpu]==2.0.66
 onnxruntime-gpu==1.20.2
 supabase==2.15.1
 
+# Boolean fusion of extruded wall pieces into a single connected solid.
+manifold3d==3.5.4
+
 # Input conversion and optional 2D segmentation.
 Pillow==11.2.1
 numpy==1.26.4
