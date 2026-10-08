@@ -434,7 +434,7 @@ export async function detectWallsRemote(
   imageUrl: string,
   options: { serviceUrl?: string; pixelsPerMeter?: number } = {},
 ): Promise<DetectionReport> {
-  const serviceUrl = options.serviceUrl ?? "http://localhost:8001";
+  const serviceUrl = options.serviceUrl ?? "http://127.0.0.1:8000";
   const pixelsPerMeter = options.pixelsPerMeter ?? 50;
 
   const response = await fetch(imageUrl);
