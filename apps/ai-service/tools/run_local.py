@@ -22,7 +22,6 @@ Este módulo no se importa desde ``app``; solo invoca sus funciones.
 from __future__ import annotations
 
 import argparse
-import io
 import json
 import math
 import sys
@@ -31,7 +30,7 @@ from collections import Counter
 from pathlib import Path
 from typing import Any, Sequence
 
-from PIL import Image, ImageDraw, ImageOps
+from PIL import Image, ImageDraw
 
 # Permite ``python tools/run_local.py ...`` además de ``-m``.
 if __package__ in (None, ""):
@@ -39,8 +38,10 @@ if __package__ in (None, ""):
 
 from app.services.floorplan import (
     MAX_IMAGE_PIXELS,
-    MAX_IMAGE_SIDE,
     InvalidFloorplanError,
+    # Se reutiliza el criterio del servicio (EXIF + thumbnail a 2048 px + PDF)
+    # en lugar de replicarlo; es la fuente de verdad del "espacio reducido".
+    _read_raster,
     analyze_floorplan,
     extrude_floorplan_to_3d,
 )
@@ -109,46 +110,7 @@ def _sample_segment(segment: Segment, step: float) -> list[Point]:
 
 
 # ---------------------------------------------------------------------------
-# Imagen reducida (mismo criterio que ``_read_raster``)
-# ---------------------------------------------------------------------------
-
-
-def _render_pdf(path: Path) -> Image.Image:
-    import fitz
-
-    with fitz.open(str(path)) as document:
-        if not document.page_count:
-            raise InvalidFloorplanError("El PDF no contiene páginas.")
-        page = document[0]
-        width = max(float(page.rect.width), 1.0)
-        height = max(float(page.rect.height), 1.0)
-        scale = min(
-            2.0,
-            MAX_IMAGE_SIDE / max(width, height),
-            math.sqrt(MAX_IMAGE_PIXELS / (width * height)),
-        )
-        pixmap = page.get_pixmap(
-            matrix=fitz.Matrix(scale, scale), alpha=False, colorspace=fitz.csRGB
-        )
-        return Image.open(io.BytesIO(pixmap.tobytes("png"))).convert("RGB")
-
-
-def _reduced_image(path: Path) -> Image.Image | None:
-    """Imagen en el espacio de ``source.image_size`` (la reducida)."""
-
-    extension = path.suffix.lower()
-    if extension == ".pdf":
-        return _render_pdf(path)
-    if extension in RASTER_EXTENSIONS:
-        with Image.open(path) as source:
-            image = ImageOps.exif_transpose(source).convert("RGB")
-        image.thumbnail((MAX_IMAGE_SIDE, MAX_IMAGE_SIDE), Image.Resampling.LANCZOS)
-        return image
-    return None  # CAD: no hay imagen
-
-
-# ---------------------------------------------------------------------------
-# Overlay
+# Overlay (la imagen reducida proviene de ``_read_raster``)
 # ---------------------------------------------------------------------------
 
 
@@ -259,9 +221,10 @@ def _draw_ground_truth(
 def build_overlay(path: Path, result: dict[str, Any]) -> Image.Image | None:
     """Dibuja entidades (y verdad si existe) sobre la imagen reducida."""
 
-    image = _reduced_image(path)
-    if image is None:
-        return None
+    extension = path.suffix.lower()
+    if extension not in {".png", ".webp", ".jpg", ".jpeg", ".pdf"}:
+        return None  # CAD: sin imagen raster
+    image = _read_raster(extension, path.read_bytes())
     image_size = result.get("source", {}).get("image_size")
     if not image_size:
         return None

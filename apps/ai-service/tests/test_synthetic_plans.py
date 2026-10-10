@@ -28,10 +28,15 @@ from tools.synthetic_plans import (
     degrade_plan,
     degrade_plan_isolated,
     generate_plan,
+    hand_shadow,
+    illumination_gradient,
+    illuminate_plan,
     plan_ground_truth,
     plan_yolo_lines,
     render_annotated_image,
     render_contact_sheet,
+    rotate_plan,
+    shear_plan,
     write_plan,
 )
 
@@ -180,6 +185,60 @@ class VisualizationTest(unittest.TestCase):
             with Image.open(path) as sheet:
                 self.assertEqual(sheet.width, 4 * 280)
                 self.assertEqual(sheet.height, 3 * 210)
+
+
+class FixedTransformTest(unittest.TestCase):
+    """Transformaciones fijas usadas en los barridos de sensibilidad."""
+
+    def test_rotate_plan_is_deterministic_and_preserves_length(self) -> None:
+        plan = generate_plan(20260101)
+        first = rotate_plan(plan, 37)
+        second = rotate_plan(plan, 37)
+        self.assertEqual(_image_digest(first.image), _image_digest(second.image))
+        for wall, new_wall in zip(plan.walls, first.walls):
+            self.assertAlmostEqual(wall.length, new_wall.length, places=1)
+
+    def test_rotate_90_swaps_wall_orientation(self) -> None:
+        plan = generate_plan(20260101)
+        horizontal = next(
+            wall
+            for wall in plan.walls
+            if abs(wall.start[0] - wall.end[0]) > abs(wall.start[1] - wall.end[1])
+        )
+        rotated = rotate_plan(plan, 90)
+        new_wall = rotated.walls[horizontal.index]
+        self.assertGreater(
+            abs(new_wall.start[1] - new_wall.end[1]),
+            abs(new_wall.start[0] - new_wall.end[0]),
+        )
+
+    def test_shear_plan_is_deterministic(self) -> None:
+        plan = generate_plan(3)
+        first = shear_plan(plan, 0.2)
+        second = shear_plan(plan, 0.2)
+        self.assertEqual(_image_digest(first.image), _image_digest(second.image))
+
+    def test_illumination_gradient_darkens_bottom(self) -> None:
+        plan = generate_plan(1)
+        image = illumination_gradient(plan.image, 0.5)
+        mean = np.asarray(image, dtype=np.float64).mean(axis=(1, 2))
+        self.assertGreater(mean[0], mean[-1])
+
+    def test_hand_shadow_darkens_a_region(self) -> None:
+        plan = generate_plan(1)
+        image = hand_shadow(plan.image, 0.8, random.Random(0))
+        diff = np.abs(
+            np.asarray(image, dtype=np.float64) - np.asarray(plan.image, dtype=np.float64)
+        ).max()
+        self.assertGreater(diff, 100)
+
+    def test_illuminate_plan_keeps_geometry(self) -> None:
+        plan = generate_plan(1)
+        out = illuminate_plan(plan, 0.3)
+        self.assertEqual(len(out.walls), len(plan.walls))
+        for wall, new_wall in zip(plan.walls, out.walls):
+            self.assertEqual(wall.start, new_wall.start)
+            self.assertEqual(wall.end, new_wall.end)
 
 
 if __name__ == "__main__":

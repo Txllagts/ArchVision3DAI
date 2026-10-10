@@ -78,6 +78,11 @@ __all__ = [
     "degrade_isolated",
     "degrade_plan",
     "degrade_plan_isolated",
+    "hand_shadow",
+    "illumination_gradient",
+    "illuminate_plan",
+    "rotate_plan",
+    "shear_plan",
     "generate_dataset",
     "generate_plan",
     "plan_ground_truth",
@@ -909,6 +914,150 @@ def degrade_plan_isolated(
 
     degraded = degrade_isolated(plan.image, rng, transform, strength)
     return _reproject_plan(plan, degraded.image, degraded.matrix)
+
+
+# ---------------------------------------------------------------------------
+# Transformaciones fijas (barridos de sensibilidad)
+# ---------------------------------------------------------------------------
+
+
+def _fixed_homography(
+    width: int,
+    height: int,
+    angle_deg: float = 0.0,
+    scale: float = 1.0,
+    shear_x: float = 0.0,
+    shear_y: float = 0.0,
+) -> tuple[Matrix, tuple[int, int]]:
+    """Homografía determinista (sin aleatoriedad) alrededor del centro.
+
+    A diferencia de ``_build_homography``, los parámetros son fijos; se usa en
+    los barridos de sensibilidad donde se controla exactamente ángulo o cizalla.
+    """
+
+    center_x, center_y = width / 2, height / 2
+    to_center = np.array(
+        [[1.0, 0.0, -center_x], [0.0, 1.0, -center_y], [0.0, 0.0, 1.0]],
+        dtype=np.float64,
+    )
+    from_center = np.array(
+        [[1.0, 0.0, center_x], [0.0, 1.0, center_y], [0.0, 0.0, 1.0]],
+        dtype=np.float64,
+    )
+
+    combined = np.identity(3, dtype=np.float64)
+    if scale != 1.0:
+        combined = np.array(
+            [[scale, 0.0, 0.0], [0.0, scale, 0.0], [0.0, 0.0, 1.0]],
+            dtype=np.float64,
+        ) @ combined
+    if shear_x != 0.0 or shear_y != 0.0:
+        combined = np.array(
+            [[1.0, shear_x, 0.0], [shear_y, 1.0, 0.0], [0.0, 0.0, 1.0]],
+            dtype=np.float64,
+        ) @ combined
+    if angle_deg != 0.0:
+        radians = math.radians(angle_deg)
+        cos_a, sin_a = math.cos(radians), math.sin(radians)
+        combined = np.array(
+            [[cos_a, -sin_a, 0.0], [sin_a, cos_a, 0.0], [0.0, 0.0, 1.0]],
+            dtype=np.float64,
+        ) @ combined
+
+    affine = from_center @ combined @ to_center
+    corners: list[Point] = [(0.0, 0.0), (width, 0.0), (width, height), (0.0, height)]
+    projected = apply_homography(corners, affine)
+    min_x, min_y, max_x, max_y = _corner_bounds(projected)
+    padding = 8.0
+    translate = np.array(
+        [[1.0, 0.0, -min_x + padding], [0.0, 1.0, -min_y + padding], [0.0, 0.0, 1.0]],
+        dtype=np.float64,
+    )
+    matrix = translate @ affine
+    out_width = int(round(max_x - min_x + 2 * padding))
+    out_height = int(round(max_y - min_y + 2 * padding))
+    return matrix, (max(out_width, 1), max(out_height, 1))
+
+
+def rotate_plan(plan: SyntheticPlan, angle_degrees: float) -> SyntheticPlan:
+    """Rota el plano un ángulo fijo (en grados) alrededor del centro."""
+
+    matrix, size = _fixed_homography(
+        plan.width, plan.height, angle_deg=angle_degrees
+    )
+    warped = _warp_image(plan.image, matrix, size)
+    return _reproject_plan(plan, warped, matrix)
+
+
+def shear_plan(
+    plan: SyntheticPlan, shear_x: float, shear_y: float = 0.0
+) -> SyntheticPlan:
+    """Aplica una cizalla fija (componentes x e y) alrededor del centro."""
+
+    matrix, size = _fixed_homography(
+        plan.width, plan.height, shear_x=shear_x, shear_y=shear_y
+    )
+    warped = _warp_image(plan.image, matrix, size)
+    return _reproject_plan(plan, warped, matrix)
+
+
+def illumination_gradient(image: Image.Image, intensity: float) -> Image.Image:
+    """Gradiente lineal vertical: brillo pleno arriba, (1-intensidad) abajo.
+
+    Con ``intensity=1`` el papel inferior se oscurece a negro; sirve para el
+    barrido de iluminación hasta que el papel más oscuro cruce el umbral de Otsu.
+    """
+
+    array = _to_array(image)
+    height = array.shape[0]
+    ramp = np.linspace(1.0, 1.0 - intensity, height).reshape(-1, 1, 1)
+    return _from_array(array * ramp)
+
+
+def hand_shadow(
+    image: Image.Image,
+    strength: float,
+    rng: random.Random | None = None,
+) -> Image.Image:
+    """Banda oscura localizada (sombra de mano) con bordes suaves.
+
+    Simula la sombra que proyecta la mano al fotografiar un plano: una franja
+    horizontal gaussiana, oscurecida hasta ``strength * 255`` en su centro.
+    """
+
+    if rng is None:
+        rng = random.Random(0)
+    array = _to_array(image)
+    height, width = array.shape[:2]
+    center_y = height * rng.uniform(0.30, 0.70)
+    half_height = height * rng.uniform(0.06, 0.14)
+    center_x = width * rng.uniform(0.35, 0.65)
+    half_width = width * rng.uniform(0.35, 0.50)
+    yy = np.arange(height, dtype=np.float64).reshape(-1, 1)
+    xx = np.arange(width, dtype=np.float64).reshape(1, -1)
+    falloff = np.exp(-0.5 * ((yy - center_y) / half_height) ** 2) * np.exp(
+        -0.5 * ((xx - center_x) / half_width) ** 2
+    )
+    darkening = falloff * (strength * 255.0)
+    return _from_array(array - darkening[..., None])
+
+
+def illuminate_plan(
+    plan: SyntheticPlan,
+    intensity: float,
+    shadow: float = 0.0,
+    rng: random.Random | None = None,
+) -> SyntheticPlan:
+    """Gradiente de iluminación (y sombra de mano opcional) sobre el plano.
+
+    No cambia la geometría: solo los píxeles, así que muros y aberturas se
+    conservan igual.
+    """
+
+    image = illumination_gradient(plan.image, intensity)
+    if shadow > 0.0:
+        image = hand_shadow(image, shadow, rng)
+    return replace(plan, image=image)
 
 
 # ---------------------------------------------------------------------------
