@@ -78,6 +78,7 @@ def _evaluate(
     step: float,
     settings: Settings,
     preprocess: bool,
+    deskew: bool,
 ) -> tuple[float, float, float, dict[str, Any] | None, list[tuple[tuple[float, float], tuple[float, float]]]]:
     """Corre el análisis sobre un plano y devuelve métricas + resultado."""
 
@@ -85,7 +86,7 @@ def _evaluate(
     data = _png_bytes(plan.image)
     try:
         result = analyze_floorplan(
-            f"{plan.name}.png", data, settings, preprocess=preprocess
+            f"{plan.name}.png", data, settings, preprocess=preprocess, deskew=deskew
         )
         entities = list(result.get("entities", []))
     except InvalidFloorplanError:
@@ -149,6 +150,7 @@ def _sweep_rotation(
     step: float,
     settings: Settings,
     preprocess: bool,
+    deskew: bool,
 ) -> tuple[
     dict[float, list[tuple[float, float, float]]],
     dict[float, tuple[SyntheticPlan, dict[str, Any] | None]],
@@ -161,7 +163,7 @@ def _sweep_rotation(
         for angle in angles:
             rotated = rotate_plan(plan, angle)
             precision, recall, f1, result, _ = _evaluate(
-                rotated, tolerance, step, settings, preprocess
+                rotated, tolerance, step, settings, preprocess, deskew
             )
             per_angle[angle].append((precision, recall, f1))
             if index == 0:
@@ -176,13 +178,14 @@ def _sweep_shear(
     step: float,
     settings: Settings,
     preprocess: bool,
+    deskew: bool,
 ) -> dict[float, list[tuple[float, float, float]]]:
     per_value: dict[float, list[tuple[float, float, float]]] = {value: [] for value in values}
     for plan in plans:
         for value in values:
             sheared = shear_plan(plan, value)
             precision, recall, f1, _, _ = _evaluate(
-                sheared, tolerance, step, settings, preprocess
+                sheared, tolerance, step, settings, preprocess, deskew
             )
             per_value[value].append((precision, recall, f1))
     return per_value
@@ -196,6 +199,7 @@ def _sweep_illumination(
     step: float,
     settings: Settings,
     preprocess: bool,
+    deskew: bool,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for intensity in intensities:
@@ -206,7 +210,7 @@ def _sweep_illumination(
         for plan in plans:
             illuminated = illuminate_plan(plan, intensity)
             precision, recall, f1, result, detected = _evaluate(
-                illuminated, tolerance, step, settings, preprocess
+                illuminated, tolerance, step, settings, preprocess, deskew
             )
             precisions.append(precision)
             recalls.append(recall)
@@ -236,6 +240,7 @@ def _sweep_shadow(
     step: float,
     settings: Settings,
     preprocess: bool,
+    deskew: bool,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for strength in strengths:
@@ -247,7 +252,7 @@ def _sweep_shadow(
             rng = random.Random(0)  # banda fija para reproducibilidad
             shadowed = illuminate_plan(plan, 0.0, shadow=strength, rng=rng)
             precision, recall, f1, result, detected = _evaluate(
-                shadowed, tolerance, step, settings, preprocess
+                shadowed, tolerance, step, settings, preprocess, deskew
             )
             precisions.append(precision)
             recalls.append(recall)
@@ -452,6 +457,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="Aplana la iluminación antes de detectar muros (flatten_illumination).",
     )
+    parser.add_argument(
+        "--deskew",
+        action="store_true",
+        help="Estima y corrige la inclinación antes de detectar muros.",
+    )
     args = parser.parse_args(argv)
 
     output_dir = Path(args.out)
@@ -461,10 +471,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     tolerance = args.tolerance
     step = max(2.0, tolerance / 2.0)
     preprocess = args.preprocess
+    deskew = args.deskew
     seeds = [args.seed + index for index in range(args.seeds)]
     plans = [generate_plan(seed) for seed in seeds]
 
-    print(f"preprocess={preprocess}")
+    print(f"preprocess={preprocess} deskew={deskew}")
     _report_layouts(plans, seeds)
 
     otsu = _otsu_threshold(plans[0])
@@ -472,23 +483,25 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     print("\n### Barrido de rotación (0..45°, paso 5°)")
     per_angle, rotation_cases = _sweep_rotation(
-        plans, ROTATION_ANGLES, tolerance, step, settings, preprocess
+        plans, ROTATION_ANGLES, tolerance, step, settings, preprocess, deskew
     )
     print(_render_rotation_table(per_angle))
 
     print("\n### Barrido de cizalla (0..0.3, 6 pasos)")
-    per_shear = _sweep_shear(plans, SHEAR_VALUES, tolerance, step, settings, preprocess)
+    per_shear = _sweep_shear(
+        plans, SHEAR_VALUES, tolerance, step, settings, preprocess, deskew
+    )
     print(_render_shear_table(per_shear))
 
     print("\n### Barrido de iluminación (gradiente lineal)")
     illumination_rows = _sweep_illumination(
-        plans, ILLUMINATION_INTENSITIES, otsu, tolerance, step, settings, preprocess
+        plans, ILLUMINATION_INTENSITIES, otsu, tolerance, step, settings, preprocess, deskew
     )
     print(_render_illumination_table(illumination_rows))
 
     print("\n### Sombra de mano (banda oscura localizada)")
     shadow_rows = _sweep_shadow(
-        plans, SHADOW_STRENGTHS, tolerance, step, settings, preprocess
+        plans, SHADOW_STRENGTHS, tolerance, step, settings, preprocess, deskew
     )
     print(_render_shadow_table(shadow_rows))
 

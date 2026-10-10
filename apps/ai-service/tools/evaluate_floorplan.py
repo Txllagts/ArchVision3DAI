@@ -291,6 +291,7 @@ def _measure(
     settings: Settings,
     step: float,
     preprocess: bool = False,
+    deskew: bool = False,
 ) -> dict[str, Any]:
     """Corre ``analyze_floorplan`` sobre un plano degradado y calcula métricas."""
 
@@ -301,7 +302,7 @@ def _measure(
     entities: list[dict[str, Any]] = []
     try:
         result = analyze_floorplan(
-            f"{degraded.name}.png", data, settings, preprocess=preprocess
+            f"{degraded.name}.png", data, settings, preprocess=preprocess, deskew=deskew
         )
         entities = list(result.get("entities", []))
     except InvalidFloorplanError as exc:
@@ -361,13 +362,14 @@ def _evaluate_variant(
     settings: Settings,
     step: float,
     preprocess: bool = False,
+    deskew: bool = False,
 ) -> dict[str, Any]:
     if strength <= 0.0:
         degraded = plan
     else:
         rng = random.Random(seed * 100_003 + index * 17 + int(round(strength * 100)))
         degraded = degrade_plan(plan, rng, strength)
-    return _measure(degraded, tolerance, settings, step, preprocess)
+    return _measure(degraded, tolerance, settings, step, preprocess, deskew)
 
 
 def _evaluate_isolated(
@@ -380,6 +382,7 @@ def _evaluate_isolated(
     settings: Settings,
     step: float,
     preprocess: bool = False,
+    deskew: bool = False,
 ) -> dict[str, Any]:
     """Aplica una única transformación de degradación y mide (ablación)."""
 
@@ -388,7 +391,7 @@ def _evaluate_isolated(
     else:
         rng = random.Random(seed * 100_003 + index * 17)
         degraded = degrade_plan_isolated(plan, rng, transform, strength)
-    return _measure(degraded, tolerance, settings, step, preprocess)
+    return _measure(degraded, tolerance, settings, step, preprocess, deskew)
 
 
 def _aggregate(records: Sequence[dict[str, Any]]) -> dict[str, Any]:
@@ -496,6 +499,7 @@ def evaluate(
     include_clean: bool,
     include_ablation: bool,
     preprocess: bool = False,
+    deskew: bool = False,
 ) -> dict[str, Any]:
     plans = generate_dataset(n, output_dir, base_seed=base_seed)
     settings = Settings(_env_file=None)
@@ -513,7 +517,8 @@ def evaluate(
             for index, plan in enumerate(plans):
                 records.append(
                     _evaluate_variant(
-                        plan, strength, seed, index, tolerance, settings, step, preprocess
+                        plan, strength, seed, index, tolerance, settings, step,
+                        preprocess, deskew,
                     )
                 )
         level_rows.append((name, _aggregate(records)))
@@ -536,6 +541,7 @@ def evaluate(
                             settings,
                             step,
                             preprocess,
+                            deskew,
                         )
                     )
             ablation_rows.append((transform, _aggregate(records)))
@@ -577,6 +583,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="Aplana la iluminación antes de detectar muros (flatten_illumination).",
     )
+    parser.add_argument(
+        "--deskew",
+        action="store_true",
+        help="Estima y corrige la inclinación antes de detectar muros.",
+    )
     args = parser.parse_args(argv)
 
     results = evaluate(
@@ -588,11 +599,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         include_clean=not args.no_clean,
         include_ablation=not args.no_ablation,
         preprocess=args.preprocess,
+        deskew=args.deskew,
     )
 
     print(
         f"\nPlanos: {args.n} · semillas: {args.seeds} · tolerancia: "
-        f"{args.tolerance} px · preprocess={args.preprocess} · salida: {args.output}"
+        f"{args.tolerance} px · preprocess={args.preprocess} · deskew={args.deskew} "
+        f"· salida: {args.output}"
     )
     print("\n### Niveles de degradación (media ± desviación estándar)")
     print(_render_level_table(results["levels"]))
