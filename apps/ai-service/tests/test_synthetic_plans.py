@@ -12,17 +12,26 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import numpy as np
 import random
+
+from PIL import Image
 
 from tools.synthetic_plans import (
     CLASS_DOOR,
     CLASS_WINDOW,
+    GEO_TRANSFORMS,
+    PHOTO_TRANSFORMS,
     apply_homography,
     degrade,
+    degrade_isolated,
     degrade_plan,
+    degrade_plan_isolated,
     generate_plan,
     plan_ground_truth,
     plan_yolo_lines,
+    render_annotated_image,
+    render_contact_sheet,
     write_plan,
 )
 
@@ -123,6 +132,54 @@ class DegradationConsistencyTest(unittest.TestCase):
             self.assertAlmostEqual(mapped[0][1], new_wall.start[1], places=6)
             self.assertAlmostEqual(mapped[1][0], new_wall.end[0], places=6)
             self.assertAlmostEqual(mapped[1][1], new_wall.end[1], places=6)
+
+
+class IsolatedDegradationTest(unittest.TestCase):
+    """Degradación aislada (una transformación a la vez), usada en la ablación."""
+
+    def test_isolated_is_deterministic(self) -> None:
+        plan = generate_plan(9)
+        for transform in (*GEO_TRANSFORMS, *PHOTO_TRANSFORMS):
+            first = degrade_isolated(plan.image, random.Random(55), transform, 1.0)
+            second = degrade_isolated(plan.image, random.Random(55), transform, 1.0)
+            self.assertEqual(_image_digest(first.image), _image_digest(second.image))
+
+    def test_isolated_photometric_keeps_geometry(self) -> None:
+        plan = generate_plan(9)
+        for transform in PHOTO_TRANSFORMS:
+            result = degrade_isolated(plan.image, random.Random(2), transform, 1.0)
+            self.assertEqual(result.image.size, plan.image.size)
+            self.assertTrue(np.allclose(result.matrix, np.identity(3)))
+
+    def test_isolated_geometric_changes_geometry(self) -> None:
+        plan = generate_plan(9)
+        for transform in GEO_TRANSFORMS:
+            result = degrade_isolated(plan.image, random.Random(2), transform, 1.0)
+            self.assertNotEqual(result.image.size, plan.image.size)
+            self.assertFalse(np.allclose(result.matrix, np.identity(3)))
+
+    def test_isolated_unknown_transform_raises(self) -> None:
+        plan = generate_plan(9)
+        with self.assertRaises(ValueError):
+            degrade_isolated(plan.image, random.Random(0), "no_existe", 1.0)
+
+
+class VisualizationTest(unittest.TestCase):
+    def test_annotated_image_is_deterministic_and_has_expected_size(self) -> None:
+        plan = generate_plan(13)
+        first = render_annotated_image(plan)
+        second = render_annotated_image(plan)
+        self.assertEqual(first.size, plan.image.size)
+        self.assertEqual(_image_digest(first), _image_digest(second))
+
+    def test_contact_sheet_creates_image(self) -> None:
+        plans = [generate_plan(seed) for seed in range(12)]
+        with tempfile.TemporaryDirectory() as directory:
+            path = render_contact_sheet(plans, Path(directory) / "sheet.png")
+            self.assertTrue(path.is_file())
+            with Image.open(path) as sheet:
+                self.assertEqual(sheet.width, 4 * 280)
+                self.assertEqual(sheet.height, 3 * 210)
 
 
 if __name__ == "__main__":

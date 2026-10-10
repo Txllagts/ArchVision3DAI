@@ -1,12 +1,14 @@
 """Evalúa ``_raster_geometry`` sobre planos sintéticos degradados.
 
-Corre ``analyze_floorplan`` sobre N planos en tres niveles de degradación y
-publica una tabla markdown con precisión/recall de muros (tolerancia en px),
-recall de puertas y ventanas, y segundos por imagen.
+Mide (media ± desviación estándar por nivel) precisión/recall de muros, recall
+de puertas y ventanas, y segundos por imagen; desglosa las entidades detectadas
+por tipo (``line`` / ``polyline``); genera una tabla de ablación de cada
+transformación de degradación por separado y una hoja de contacto con el overlay
+de ground truth + etiquetas YOLO.
 
 Se ejecuta como módulo desde ``apps/ai-service``::
 
-    python -m tools.evaluate_floorplan --count 5
+    python -m tools.evaluate_floorplan --n 40 --seeds 3
 
 El directorio de salida (por defecto ``tools/_output``) está ignorado por git.
 Este script no modifica nada de ``app``: solo lo invoca.
@@ -21,7 +23,7 @@ import random
 import sys
 import time
 from pathlib import Path
-from statistics import mean
+from statistics import mean, pstdev
 from typing import Any, Iterable, Sequence
 
 from PIL import Image
@@ -33,9 +35,13 @@ if __package__ in (None, ""):
 from app.services.floorplan import analyze_floorplan, InvalidFloorplanError
 from app.settings import Settings
 from tools.synthetic_plans import (
+    GEO_TRANSFORMS,
+    PHOTO_TRANSFORMS,
     SyntheticPlan,
     degrade_plan,
+    degrade_plan_isolated,
     generate_dataset,
+    render_contact_sheet,
 )
 
 Point = tuple[float, float]
@@ -49,8 +55,28 @@ DEGRADATION_LEVELS: tuple[tuple[str, float], ...] = (
     ("fuerte", 1.00),
 )
 CLEAN_LEVEL: tuple[str, float] = ("limpio", 0.0)
+ABLATION_STRENGTH = 1.0  # intensidad fija para la tabla de ablación
+DEFAULT_N = 40
+DEFAULT_SEEDS = 3
 DEFAULT_TOLERANCE = 6.0
+CONTACT_SHEET_PLANS = 12
 DEFAULT_OUTPUT = Path(__file__).resolve().parent / "_output"
+
+# Métricas numéricas agregadas con media ± desviación estándar.
+METRIC_KEYS: tuple[str, ...] = (
+    "wall_precision",
+    "wall_recall",
+    "wall_f1",
+    "line_precision",
+    "line_recall",
+    "polyline_precision",
+    "polyline_recall",
+    "door_recall",
+    "window_recall",
+    "gap_recall",
+    "seconds",
+)
+COUNT_KEYS: tuple[str, ...] = ("line_count", "polyline_count")
 
 
 # ---------------------------------------------------------------------------
@@ -102,6 +128,23 @@ def _wall_segments(entities: Iterable[dict[str, Any]], role: str) -> list[Segmen
         if entity.get("role") == role
         for segment in _entity_segments(entity)
     ]
+
+
+def _wall_entities_by_type(
+    entities: Iterable[dict[str, Any]],
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """Separa las entidades de muro en ``line`` (rectas) y ``polyline`` (curvas)."""
+
+    lines: list[dict[str, Any]] = []
+    polylines: list[dict[str, Any]] = []
+    for entity in entities:
+        if entity.get("role") != "wall_candidate":
+            continue
+        if entity.get("type") == "polyline":
+            polylines.append(entity)
+        else:
+            lines.append(entity)
+    return lines, polylines
 
 
 def _wall_runs(plan: SyntheticPlan) -> list[Segment]:
@@ -202,10 +245,9 @@ def _gap_preserved(
 ) -> tuple[float | None, int, int]:
     """Fracción de huecos respetados por los muros detectados.
 
-    Extra: el raster no clasifica puertas/ventanas, pero sí podemos medir si
-    la detección deja un hueco donde hay una abertura (no la puentea). Solo se
-    consideran aberturas cuyo muro anfitrión fue detectado en algún extremo,
-    para no contar como "respetado" un plano sin detección.
+    NO ES FIABLE como métrica de huecos: premia no detectar (un plano sin
+    detección "respeta" todos los huecos). Se conserva solo con fines de
+    referencia y se marca como tal en la tabla.
     """
 
     if not detected:
@@ -243,6 +285,70 @@ def _png_bytes(image: Image.Image) -> bytes:
     return buffer.getvalue()
 
 
+def _measure(
+    degraded: SyntheticPlan,
+    tolerance: float,
+    settings: Settings,
+    step: float,
+) -> dict[str, Any]:
+    """Corre ``analyze_floorplan`` sobre un plano degradado y calcula métricas."""
+
+    gt_walls = _wall_runs(degraded)
+    data = _png_bytes(degraded.image)
+    start = time.perf_counter()
+    error: str | None = None
+    entities: list[dict[str, Any]] = []
+    try:
+        result = analyze_floorplan(f"{degraded.name}.png", data, settings)
+        entities = list(result.get("entities", []))
+    except InvalidFloorplanError as exc:
+        error = type(exc).__name__
+    except Exception as exc:  # pragma: no cover - salvaguarda de la medición
+        error = type(exc).__name__
+    elapsed = time.perf_counter() - start
+
+    line_entities, polyline_entities = _wall_entities_by_type(entities)
+    detected_lines = [seg for entity in line_entities for seg in _entity_segments(entity)]
+    detected_polylines = [
+        seg for entity in polyline_entities for seg in _entity_segments(entity)
+    ]
+    detected_walls = detected_lines + detected_polylines
+    detected_doors = _wall_segments(entities, "door_candidate")
+    detected_windows = _wall_segments(entities, "window_candidate")
+
+    wall_precision, wall_recall, wall_f1 = _wall_metrics(
+        gt_walls, detected_walls, tolerance, step
+    )
+    line_precision, line_recall, _ = _wall_metrics(
+        gt_walls, detected_lines, tolerance, step
+    )
+    polyline_precision, polyline_recall, _ = _wall_metrics(
+        gt_walls, detected_polylines, tolerance, step
+    )
+    door_recall, _, _ = _opening_recall(degraded, detected_doors, tolerance, "door")
+    window_recall, _, _ = _opening_recall(
+        degraded, detected_windows, tolerance, "window"
+    )
+    gap_recall, _, _ = _gap_preserved(degraded, detected_walls, tolerance)
+
+    return {
+        "wall_precision": wall_precision,
+        "wall_recall": wall_recall,
+        "wall_f1": wall_f1,
+        "line_count": len(line_entities),
+        "line_precision": line_precision,
+        "line_recall": line_recall,
+        "polyline_count": len(polyline_entities),
+        "polyline_precision": polyline_precision,
+        "polyline_recall": polyline_recall,
+        "door_recall": door_recall,
+        "window_recall": window_recall,
+        "gap_recall": gap_recall,
+        "seconds": elapsed,
+        "error": error,
+    }
+
+
 def _evaluate_variant(
     plan: SyntheticPlan,
     strength: float,
@@ -257,72 +363,66 @@ def _evaluate_variant(
     else:
         rng = random.Random(seed * 100_003 + index * 17 + int(round(strength * 100)))
         degraded = degrade_plan(plan, rng, strength)
+    return _measure(degraded, tolerance, settings, step)
 
-    gt_walls = _wall_runs(degraded)
 
-    data = _png_bytes(degraded.image)
-    start = time.perf_counter()
-    error: str | None = None
-    entities: list[dict[str, Any]] = []
-    try:
-        result = analyze_floorplan(f"{degraded.name}.png", data, settings)
-        entities = list(result.get("entities", []))
-    except InvalidFloorplanError as exc:
-        error = type(exc).__name__
-    except Exception as exc:  # pragma: no cover - salvaguarda de la medición
-        error = type(exc).__name__
-    elapsed = time.perf_counter() - start
+def _evaluate_isolated(
+    plan: SyntheticPlan,
+    transform: str,
+    strength: float,
+    seed: int,
+    index: int,
+    tolerance: float,
+    settings: Settings,
+    step: float,
+) -> dict[str, Any]:
+    """Aplica una única transformación de degradación y mide (ablación)."""
 
-    detected_walls = _wall_segments(entities, "wall_candidate")
-    detected_doors = _wall_segments(entities, "door_candidate")
-    detected_windows = _wall_segments(entities, "window_candidate")
-
-    precision, recall, f1 = _wall_metrics(gt_walls, detected_walls, tolerance, step)
-    door_recall, _, _ = _opening_recall(degraded, detected_doors, tolerance, "door")
-    window_recall, _, _ = _opening_recall(
-        degraded, detected_windows, tolerance, "window"
-    )
-    gap_recall, _, _ = _gap_preserved(degraded, detected_walls, tolerance)
-
-    return {
-        "wall_precision": precision,
-        "wall_recall": recall,
-        "wall_f1": f1,
-        "door_recall": door_recall,
-        "window_recall": window_recall,
-        "gap_recall": gap_recall,
-        "seconds": elapsed,
-        "error": error,
-        "detected_walls": len(detected_walls),
-    }
+    if strength <= 0.0:
+        degraded = plan
+    else:
+        rng = random.Random(seed * 100_003 + index * 17)
+        degraded = degrade_plan_isolated(plan, rng, transform, strength)
+    return _measure(degraded, tolerance, settings, step)
 
 
 def _aggregate(records: Sequence[dict[str, Any]]) -> dict[str, Any]:
-    def _mean(key: str) -> float | None:
-        values = [record[key] for record in records if record[key] is not None]
-        return mean(values) if values else None
-
-    return {
-        "wall_precision": _mean("wall_precision") or 0.0,
-        "wall_recall": _mean("wall_recall") or 0.0,
-        "wall_f1": _mean("wall_f1") or 0.0,
-        "door_recall": _mean("door_recall"),
-        "window_recall": _mean("window_recall"),
-        "gap_recall": _mean("gap_recall"),
-        "seconds": _mean("seconds") or 0.0,
-        "failures": sum(1 for record in records if record["error"]),
-        "count": len(records),
-    }
+    aggregate: dict[str, Any] = {}
+    for key in METRIC_KEYS:
+        values = [record[key] for record in records if record.get(key) is not None]
+        if values:
+            aggregate[key] = (mean(values), pstdev(values) if len(values) > 1 else 0.0)
+        else:
+            aggregate[key] = (None, None)
+    for key in COUNT_KEYS:
+        values = [record[key] for record in records if record.get(key) is not None]
+        aggregate[key] = (mean(values) if values else None, None)
+    aggregate["failures"] = sum(1 for record in records if record["error"])
+    aggregate["count"] = len(records)
+    return aggregate
 
 
-def _format(value: float | None) -> str:
-    return "n/d" if value is None else f"{value:.3f}"
+# ---------------------------------------------------------------------------
+# Render de tablas
+# ---------------------------------------------------------------------------
 
 
-def _render_table(rows: Sequence[tuple[str, dict[str, Any]]]) -> str:
+def _fmt(aggregate: dict[str, Any], key: str, digits: int = 3) -> str:
+    mean_value, std_value = aggregate[key]
+    if mean_value is None:
+        return "n/d"
+    return f"{mean_value:.{digits}f} ± {std_value:.{digits}f}"
+
+
+def _fmt_count(aggregate: dict[str, Any], key: str) -> str:
+    mean_value, _ = aggregate[key]
+    return "n/d" if mean_value is None else f"{mean_value:.0f}"
+
+
+def _render_level_table(rows: Sequence[tuple[str, dict[str, Any]]]) -> str:
     header = (
         "| Nivel | Muros P | Muros R | Muros F1 | Puertas R | Ventanas R | "
-        "Huecos R* | s/imagen | Fallos |"
+        "Huecos R† | s/imagen | Fallos |"
     )
     separator = "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |"
     lines = [header, separator]
@@ -331,13 +431,51 @@ def _render_table(rows: Sequence[tuple[str, dict[str, Any]]]) -> str:
             "| {name} | {p} | {r} | {f1} | {door} | {window} | {gap} | {sec} | "
             "{fail} |".format(
                 name=name,
-                p=_format(aggregate["wall_precision"]),
-                r=_format(aggregate["wall_recall"]),
-                f1=_format(aggregate["wall_f1"]),
-                door=_format(aggregate["door_recall"]),
-                window=_format(aggregate["window_recall"]),
-                gap=_format(aggregate["gap_recall"]),
-                sec=_format(aggregate["seconds"]),
+                p=_fmt(aggregate, "wall_precision"),
+                r=_fmt(aggregate, "wall_recall"),
+                f1=_fmt(aggregate, "wall_f1"),
+                door=_fmt(aggregate, "door_recall"),
+                window=_fmt(aggregate, "window_recall"),
+                gap=_fmt(aggregate, "gap_recall"),
+                sec=_fmt(aggregate, "seconds", 2),
+                fail=f"{aggregate['failures']}/{aggregate['count']}",
+            )
+        )
+    return "\n".join(lines)
+
+
+def _render_entity_table(rows: Sequence[tuple[str, dict[str, Any]]]) -> str:
+    header = (
+        "| Nivel | Línea (n) | Línea P | Línea R | Polilínea (n) | "
+        "Polilínea P | Polilínea R |"
+    )
+    separator = "| --- | ---: | ---: | ---: | ---: | ---: | ---: |"
+    lines = [header, separator]
+    for name, aggregate in rows:
+        lines.append(
+            "| {name} | {lc} | {lp} | {lr} | {pc} | {pp} | {pr} |".format(
+                name=name,
+                lc=_fmt_count(aggregate, "line_count"),
+                lp=_fmt(aggregate, "line_precision"),
+                lr=_fmt(aggregate, "line_recall"),
+                pc=_fmt_count(aggregate, "polyline_count"),
+                pp=_fmt(aggregate, "polyline_precision"),
+                pr=_fmt(aggregate, "polyline_recall"),
+            )
+        )
+    return "\n".join(lines)
+
+
+def _render_ablation_table(rows: Sequence[tuple[str, dict[str, Any]]]) -> str:
+    header = "| Transformación | Muros P | Muros R | Fallos |"
+    separator = "| --- | ---: | ---: | ---: |"
+    lines = [header, separator]
+    for name, aggregate in rows:
+        lines.append(
+            "| {name} | {p} | {r} | {fail} |".format(
+                name=name,
+                p=_fmt(aggregate, "wall_precision"),
+                r=_fmt(aggregate, "wall_recall"),
                 fail=f"{aggregate['failures']}/{aggregate['count']}",
             )
         )
@@ -345,13 +483,15 @@ def _render_table(rows: Sequence[tuple[str, dict[str, Any]]]) -> str:
 
 
 def evaluate(
-    count: int,
+    n: int,
+    seeds: int,
     output_dir: Path,
     tolerance: float,
-    seed: int,
+    base_seed: int,
     include_clean: bool,
-) -> list[tuple[str, dict[str, Any]]]:
-    plans = generate_dataset(count, output_dir, base_seed=seed)
+    include_ablation: bool,
+) -> dict[str, Any]:
+    plans = generate_dataset(n, output_dir, base_seed=base_seed)
     settings = Settings(_env_file=None)
     step = max(2.0, tolerance / 2.0)
 
@@ -359,21 +499,48 @@ def evaluate(
     if include_clean:
         levels = [CLEAN_LEVEL, *levels]
 
-    results: list[tuple[str, dict[str, Any]]] = []
+    level_rows: list[tuple[str, dict[str, Any]]] = []
     for name, strength in levels:
-        records = [
-            _evaluate_variant(
-                plan, strength, seed, index, tolerance, settings, step
-            )
-            for index, plan in enumerate(plans)
-        ]
-        results.append((name, _aggregate(records)))
-    return results
+        records: list[dict[str, Any]] = []
+        for seed_index in range(seeds):
+            seed = base_seed + seed_index
+            for index, plan in enumerate(plans):
+                records.append(
+                    _evaluate_variant(plan, strength, seed, index, tolerance, settings, step)
+                )
+        level_rows.append((name, _aggregate(records)))
+
+    ablation_rows: list[tuple[str, dict[str, Any]]] = []
+    if include_ablation:
+        for transform in (*GEO_TRANSFORMS, *PHOTO_TRANSFORMS):
+            records = []
+            for seed_index in range(seeds):
+                seed = base_seed + seed_index
+                for index, plan in enumerate(plans):
+                    records.append(
+                        _evaluate_isolated(
+                            plan,
+                            transform,
+                            ABLATION_STRENGTH,
+                            seed,
+                            index,
+                            tolerance,
+                            settings,
+                            step,
+                        )
+                    )
+            ablation_rows.append((transform, _aggregate(records)))
+
+    return {"levels": level_rows, "ablation": ablation_rows, "plans": plans}
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--count", type=int, default=5, help="Número de planos.")
+    parser.add_argument("--n", type=int, default=DEFAULT_N, help="Número de planos.")
+    parser.add_argument(
+        "--seeds", type=int, default=DEFAULT_SEEDS, help="Número de semillas."
+    )
+    parser.add_argument("--seed", type=int, default=20260101, help="Semilla base.")
     parser.add_argument(
         "--output",
         type=Path,
@@ -386,28 +553,63 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=DEFAULT_TOLERANCE,
         help="Tolerancia en px para emparejar muros.",
     )
-    parser.add_argument("--seed", type=int, default=20260101, help="Semilla base.")
     parser.add_argument(
         "--no-clean",
         action="store_true",
         help="Omite la fila de referencia sin degradación.",
     )
+    parser.add_argument(
+        "--no-ablation",
+        action="store_true",
+        help="Omite la tabla de ablación.",
+    )
+    parser.add_argument(
+        "--preprocess",
+        action="store_true",
+        help="Preprocesado previo (pendiente de implementar).",
+    )
     args = parser.parse_args(argv)
 
-    rows = evaluate(
-        count=args.count,
+    if args.preprocess:
+        print(
+            "AVISO: --preprocess está pendiente de implementar; esta ejecución "
+            "NO aplica ningún preprocesado."
+        )
+
+    results = evaluate(
+        n=args.n,
+        seeds=args.seeds,
         output_dir=args.output,
         tolerance=args.tolerance,
-        seed=args.seed,
+        base_seed=args.seed,
         include_clean=not args.no_clean,
+        include_ablation=not args.no_ablation,
     )
-    print(f"\nPlanos: {args.count} · tolerancia: {args.tolerance} px "
-          f"· salida: {args.output}")
-    print(_render_table(rows))
-    print("\n* Huecos R es una métrica extra: fracción de aberturas cuyo muro")
-    print("  anfitrión fue detectado y que quedan sin puentear por un muro.")
-    print("  Puertas/Ventanas R mide candidatos con rol door/window; el modo")
-    print("  raster hoy no los produce (ver NOTAS).")
+
+    print(
+        f"\nPlanos: {args.n} · semillas: {args.seeds} · tolerancia: "
+        f"{args.tolerance} px · salida: {args.output}"
+    )
+    print("\n### Niveles de degradación (media ± desviación estándar)")
+    print(_render_level_table(results["levels"]))
+
+    print("\n### Entidades detectadas por tipo")
+    print(_render_entity_table(results["levels"]))
+
+    if args.no_ablation is False:
+        print(f"\n### Ablación (intensidad fija {ABLATION_STRENGTH})")
+        print(_render_ablation_table(results["ablation"]))
+
+    contact_path = render_contact_sheet(
+        results["plans"][:CONTACT_SHEET_PLANS],
+        args.output / "contact_sheet.png",
+    )
+    print(f"\nHoja de contacto: {contact_path}")
+
+    print("\nNotas:")
+    print("  † Huecos R NO ES FIABLE: premia no detectar (no es una métrica de huecos).")
+    print("  Puertas/Ventanas R = candidatos con rol door/window; el modo raster")
+    print("  hoy no los produce (0.000 esperado).")
     return 0
 
 

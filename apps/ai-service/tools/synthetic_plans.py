@@ -27,7 +27,7 @@ import math
 import random
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, Iterable, Sequence
+from typing import Any, Callable, Iterable, Sequence
 
 import numpy as np
 from PIL import Image, ImageDraw, ImageFilter
@@ -75,11 +75,15 @@ __all__ = [
     "Wall",
     "apply_homography",
     "degrade",
+    "degrade_isolated",
     "degrade_plan",
+    "degrade_plan_isolated",
     "generate_dataset",
     "generate_plan",
     "plan_ground_truth",
     "plan_yolo_lines",
+    "render_annotated_image",
+    "render_contact_sheet",
     "write_plan",
 ]
 
@@ -612,24 +616,18 @@ def _build_homography(
     width: int,
     height: int,
     strength: float,
+    enabled: set[str] | None = None,
 ) -> tuple[Matrix, tuple[int, int]]:
-    """Compone las transformaciones geométricas y calcula el lienzo destino."""
+    """Compone las transformaciones geométricas habilitadas y el lienzo destino.
+
+    ``enabled`` permite aislar una sola transformación geométrica (ablación).
+    Si es ``None`` se aplican todas las de ``GEO_TRANSFORMS``.
+    """
+
+    if enabled is None:
+        enabled = set(GEO_TRANSFORMS)
 
     center_x, center_y = width / 2, height / 2
-    angle = math.radians(rng.uniform(-1.0, 1.0) * 6.0 * strength)
-    scale = 1.0 + rng.uniform(-1.0, 1.0) * 0.05 * strength
-    shear_x = rng.uniform(-1.0, 1.0) * 0.06 * strength
-    shear_y = rng.uniform(-1.0, 1.0) * 0.06 * strength
-
-    cos_a, sin_a = math.cos(angle), math.sin(angle)
-    rotation = np.array(
-        [[cos_a, -sin_a, 0.0], [sin_a, cos_a, 0.0], [0.0, 0.0, 1.0]],
-        dtype=np.float64,
-    )
-    shape = np.array(
-        [[scale, shear_x, 0.0], [shear_y, scale, 0.0], [0.0, 0.0, 1.0]],
-        dtype=np.float64,
-    )
     to_center = np.array(
         [[1.0, 0.0, -center_x], [0.0, 1.0, -center_y], [0.0, 0.0, 1.0]],
         dtype=np.float64,
@@ -638,26 +636,47 @@ def _build_homography(
         [[1.0, 0.0, center_x], [0.0, 1.0, center_y], [0.0, 0.0, 1.0]],
         dtype=np.float64,
     )
-    affine = from_center @ rotation @ shape @ to_center
+
+    angle = math.radians(rng.uniform(-1.0, 1.0) * 6.0 * strength) if "rotate" in enabled else 0.0
+    scale = 1.0 + rng.uniform(-1.0, 1.0) * 0.05 * strength if "scale" in enabled else 1.0
+    shear_x = rng.uniform(-1.0, 1.0) * 0.06 * strength if "shear" in enabled else 0.0
+    shear_y = rng.uniform(-1.0, 1.0) * 0.06 * strength if "shear" in enabled else 0.0
+
+    combined = np.identity(3, dtype=np.float64)
+    if "scale" in enabled:
+        combined = np.array(
+            [[scale, 0.0, 0.0], [0.0, scale, 0.0], [0.0, 0.0, 1.0]], dtype=np.float64
+        ) @ combined
+    if "shear" in enabled:
+        combined = np.array(
+            [[1.0, shear_x, 0.0], [shear_y, 1.0, 0.0], [0.0, 0.0, 1.0]], dtype=np.float64
+        ) @ combined
+    if "rotate" in enabled:
+        cos_a, sin_a = math.cos(angle), math.sin(angle)
+        combined = np.array(
+            [[cos_a, -sin_a, 0.0], [sin_a, cos_a, 0.0], [0.0, 0.0, 1.0]], dtype=np.float64
+        ) @ combined
+
+    affine = from_center @ combined @ to_center
 
     corners: list[Point] = [(0.0, 0.0), (width, 0.0), (width, height), (0.0, height)]
-    warped = apply_homography(corners, affine)
-    jitter = 0.03 * strength * min(width, height)
-    perturbed = [
-        (x + rng.uniform(-1.0, 1.0) * jitter, y + rng.uniform(-1.0, 1.0) * jitter)
-        for x, y in warped
-    ]
-    perspective = _homography_from_quad(warped, perturbed)
-    combined = perspective @ affine
+    if "perspective" in enabled:
+        warped = apply_homography(corners, affine)
+        jitter = 0.03 * strength * min(width, height)
+        perturbed = [
+            (x + rng.uniform(-1.0, 1.0) * jitter, y + rng.uniform(-1.0, 1.0) * jitter)
+            for x, y in warped
+        ]
+        affine = _homography_from_quad(warped, perturbed) @ affine
 
-    projected = apply_homography(corners, combined)
+    projected = apply_homography(corners, affine)
     min_x, min_y, max_x, max_y = _corner_bounds(projected)
     padding = 8.0
     translate = np.array(
         [[1.0, 0.0, -min_x + padding], [0.0, 1.0, -min_y + padding], [0.0, 0.0, 1.0]],
         dtype=np.float64,
     )
-    matrix = translate @ combined
+    matrix = translate @ affine
     out_width = int(round(max_x - min_x + 2 * padding))
     out_height = int(round(max_y - min_y + 2 * padding))
     return matrix, (max(out_width, 1), max(out_height, 1))
@@ -685,20 +704,54 @@ def _warp_image(image: Image.Image, matrix: Matrix, size: tuple[int, int]) -> Im
     )
 
 
-def _add_noise(array: np.ndarray, rng_np: np.random.Generator, sigma: float) -> np.ndarray:
-    noise = rng_np.normal(0.0, sigma, array.shape)
-    return np.clip(array + noise, 0, 255)
+def _to_array(image: Image.Image) -> np.ndarray:
+    return np.asarray(image, dtype=np.float64)
 
 
-def _illumination_gradient(array: np.ndarray, strength: float) -> np.ndarray:
+def _from_array(array: np.ndarray) -> Image.Image:
+    return Image.fromarray(np.clip(array, 0, 255).astype(np.uint8), "RGB")
+
+
+def _op_blur(image: Image.Image, rng: random.Random, strength: float) -> Image.Image:
+    radius = rng.uniform(0.4, 1.8) * strength
+    if radius <= 0.05:
+        return image
+    return image.filter(ImageFilter.GaussianBlur(radius=radius))
+
+
+def _op_illumination(image: Image.Image, rng: random.Random, strength: float) -> Image.Image:
+    array = _to_array(image)
     height, width = array.shape[:2]
     ramp_x = np.linspace(1.0 - 0.25 * strength, 1.0 + 0.10 * strength, width)
     ramp_y = np.linspace(1.0 - 0.10 * strength, 1.0 + 0.15 * strength, height)
     field = np.outer(ramp_y, ramp_x)[:, :, None]
-    return np.clip(array * field, 0, 255)
+    return _from_array(array * field)
 
 
-def _smudge(image: Image.Image, rng: random.Random, strength: float) -> Image.Image:
+def _op_noise(image: Image.Image, rng: random.Random, strength: float) -> Image.Image:
+    sigma = rng.uniform(3.0, 14.0) * strength
+    if sigma <= 0.5:
+        return image
+    rng_np = np.random.default_rng(rng.getrandbits(32))
+    array = _to_array(image)
+    return _from_array(array + rng_np.normal(0.0, sigma, array.shape))
+
+
+def _op_contrast(image: Image.Image, rng: random.Random, strength: float) -> Image.Image:
+    array = _to_array(image)
+    factor = 1.0 - 0.35 * strength
+    return _from_array((array - 127.5) * factor + 127.5)
+
+
+def _op_jpeg(image: Image.Image, rng: random.Random, strength: float) -> Image.Image:
+    quality = int(round(85 - 45 * strength))
+    buffer = io.BytesIO()
+    image.save(buffer, format="JPEG", quality=max(20, quality))
+    buffer.seek(0)
+    return Image.open(buffer).convert("RGB")
+
+
+def _op_smudge(image: Image.Image, rng: random.Random, strength: float) -> Image.Image:
     draw = ImageDraw.Draw(image)
     width, height = image.size
     for _ in range(int(round(1 + 3 * strength))):
@@ -708,50 +761,44 @@ def _smudge(image: Image.Image, rng: random.Random, strength: float) -> Image.Im
         top = rng.uniform(0, height - box_h)
         light = rng.randint(200, 245)
         draw.rectangle(
-            (left, top, left + box_w, top + box_h),
-            fill=(light, light, light),
+            (left, top, left + box_w, top + box_h), fill=(light, light, light)
         )
     return image
+
+
+def _op_tint(image: Image.Image, rng: random.Random, strength: float) -> Image.Image:
+    array = _to_array(image)
+    return _from_array(array + rng.uniform(-8.0, 8.0) * strength)
+
+
+# Registro de transformaciones fotométricas: cada una aplicable por separado.
+PHOTO_OPS: dict[str, Callable[[Image.Image, random.Random, float], Image.Image]] = {
+    "blur": _op_blur,
+    "illumination_gradient": _op_illumination,
+    "gaussian_noise": _op_noise,
+    "contrast": _op_contrast,
+    "jpeg": _op_jpeg,
+    "smudge": _op_smudge,
+    "paper_tint": _op_tint,
+}
 
 
 def _apply_photometric(
     image: Image.Image, rng: random.Random, strength: float
 ) -> Image.Image:
-    rng_np = np.random.default_rng(rng.getrandbits(32))
+    """Aplica todas las transformaciones fotométricas en orden fijo."""
 
-    blur_radius = rng.uniform(0.4, 1.8) * strength
-    if blur_radius > 0.05:
-        image = image.filter(ImageFilter.GaussianBlur(radius=blur_radius))
-
-    array = np.asarray(image, dtype=np.float64)
-    array = _illumination_gradient(array, strength)
-
-    noise_sigma = rng.uniform(3.0, 14.0) * strength
-    if noise_sigma > 0.5:
-        array = _add_noise(array, rng_np, noise_sigma)
-
-    contrast = 1.0 - 0.35 * strength
-    array = (array - 127.5) * contrast + 127.5
-
-    tint = rng.uniform(-8.0, 8.0) * strength
-    array = array + tint
-    image = Image.fromarray(np.clip(array, 0, 255).astype(np.uint8), "RGB")
-
-    if rng.random() < 0.6 * strength + 0.2:
-        quality = int(round(85 - 45 * strength))
-        image = _jpeg_recompress(image, max(20, quality))
-
-    if strength > 0.3:
-        image = _smudge(image, rng, strength)
-
+    for name in PHOTO_TRANSFORMS:
+        image = PHOTO_OPS[name](image, rng, strength)
     return image
 
 
-def _jpeg_recompress(image: Image.Image, quality: int) -> Image.Image:
-    buffer = io.BytesIO()
-    image.save(buffer, format="JPEG", quality=quality)
-    buffer.seek(0)
-    return Image.open(buffer).convert("RGB")
+def _apply_photometric_single(
+    image: Image.Image, rng: random.Random, name: str, strength: float
+) -> Image.Image:
+    """Aplica una única transformación fotométrica (ablación)."""
+
+    return PHOTO_OPS[name](image, rng, strength)
 
 
 def degrade(
@@ -775,33 +822,54 @@ def degrade(
     return DegradedImage(image=result, matrix=matrix)
 
 
-def degrade_plan(
-    plan: SyntheticPlan, rng: random.Random, strength: float
-) -> SyntheticPlan:
-    """Aplica ``degrade`` y arrastra la geometría con la misma homografía."""
+def degrade_isolated(
+    image: Image.Image,
+    rng: random.Random,
+    transform: str,
+    strength: float,
+) -> DegradedImage:
+    """Aplica una única transformación (geometría o fotometría) en aislamiento.
 
-    degraded = degrade(plan.image, rng, strength)
-    matrix = degraded.matrix
+    Útil para la tabla de ablación: cada transformación de ``GEO_TRANSFORMS`` o
+    ``PHOTO_TRANSFORMS`` se aplica sola con intensidad fija.
+    """
+
+    if strength <= 0.0:
+        return DegradedImage(image=image.copy(), matrix=np.identity(3, dtype=np.float64))
+
+    if transform in GEO_TRANSFORMS:
+        matrix, size = _build_homography(
+            rng, image.width, image.height, strength, enabled={transform}
+        )
+        warped = _warp_image(image, matrix, size)
+        return DegradedImage(image=warped, matrix=matrix)
+
+    if transform in PHOTO_TRANSFORMS:
+        result = _apply_photometric_single(image.copy(), rng, transform, strength)
+        return DegradedImage(image=result, matrix=np.identity(3, dtype=np.float64))
+
+    raise ValueError(f"Transformación desconocida: {transform!r}")
+
+
+def _reproject_plan(
+    plan: SyntheticPlan, image: Image.Image, matrix: Matrix
+) -> SyntheticPlan:
+    """Reconstruye el plano con la geometría transformada por ``matrix``."""
 
     new_walls: list[Wall] = []
     for wall in plan.walls:
-        start, end = degraded.apply_points([wall.start, wall.end])
+        start, end = apply_homography([wall.start, wall.end], matrix)
         original_length = wall.length
         new_length = _distance(start, end)
         factor = new_length / original_length if original_length > 1e-9 else 1.0
         new_walls.append(
-            replace(
-                wall,
-                start=start,
-                end=end,
-                thickness=wall.thickness * factor,
-            )
+            replace(wall, start=start, end=end, thickness=wall.thickness * factor)
         )
 
     by_index = {wall.index: wall for wall in new_walls}
     new_openings: list[Opening] = []
     for opening in plan.openings:
-        start, end = degraded.apply_points([opening.start, opening.end])
+        start, end = apply_homography([opening.start, opening.end], matrix)
         wall = by_index[opening.wall_index]
         direction = wall.direction
         offset = (
@@ -809,20 +877,102 @@ def degrade_plan(
             + (start[1] - wall.start[1]) * direction[1]
         )
         new_openings.append(
-            replace(
-                opening,
-                start=start,
-                end=end,
-                offset=offset,
-                width=_distance(start, end),
-            )
+            replace(opening, start=start, end=end, offset=offset, width=_distance(start, end))
         )
 
     return SyntheticPlan(
         name=plan.name,
-        image=degraded.image,
-        width=degraded.image.width,
-        height=degraded.image.height,
+        image=image,
+        width=image.width,
+        height=image.height,
         walls=new_walls,
         openings=new_openings,
     )
+
+
+def degrade_plan(
+    plan: SyntheticPlan, rng: random.Random, strength: float
+) -> SyntheticPlan:
+    """Aplica ``degrade`` y arrastra la geometría con la misma homografía."""
+
+    degraded = degrade(plan.image, rng, strength)
+    return _reproject_plan(plan, degraded.image, degraded.matrix)
+
+
+def degrade_plan_isolated(
+    plan: SyntheticPlan,
+    rng: random.Random,
+    transform: str,
+    strength: float,
+) -> SyntheticPlan:
+    """Aplica ``degrade_isolated`` y arrastra la geometría con la homografía."""
+
+    degraded = degrade_isolated(plan.image, rng, transform, strength)
+    return _reproject_plan(plan, degraded.image, degraded.matrix)
+
+
+# ---------------------------------------------------------------------------
+# Visualización: overlay de ground truth y etiquetas YOLO
+# ---------------------------------------------------------------------------
+
+
+def render_annotated_image(plan: SyntheticPlan) -> Image.Image:
+    """Superpone al plano el ground truth (muros + aberturas) y las etiquetas YOLO.
+
+    Permite revisar a ojo que las etiquetas estén alineadas con la geometría:
+    los muros GT se dibujan en rojo, las aberturas GT en verde y las etiquetas
+    YOLO como relleno translúcido (azul = puerta, naranja = ventana). Si GT y
+    etiquetas coinciden, el relleno translúcido queda exactamente sobre el
+    contorno verde.
+    """
+
+    by_index = {wall.index: wall for wall in plan.walls}
+    base = plan.image.convert("RGBA")
+
+    ground_truth_layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    gt_draw = ImageDraw.Draw(ground_truth_layer)
+    for wall in plan.walls:
+        gt_draw.line([wall.start, wall.end], fill=(255, 0, 0, 255), width=3)
+    for opening in plan.openings:
+        wall = by_index[opening.wall_index]
+        gt_draw.polygon(_opening_polygon(opening, wall), outline=(0, 200, 0, 255))
+    base = Image.alpha_composite(base, ground_truth_layer)
+
+    yolo_layer = Image.new("RGBA", base.size, (0, 0, 0, 0))
+    yolo_draw = ImageDraw.Draw(yolo_layer)
+    for opening in plan.openings:
+        wall = by_index[opening.wall_index]
+        polygon = _opening_polygon(opening, wall)
+        if opening.kind == "door":
+            fill, outline = (0, 90, 255, 80), (0, 90, 255, 255)
+        else:
+            fill, outline = (255, 150, 0, 80), (255, 150, 0, 255)
+        yolo_draw.polygon(polygon, fill=fill, outline=outline)
+    base = Image.alpha_composite(base, yolo_layer)
+
+    return base.convert("RGB")
+
+
+def render_contact_sheet(
+    plans: Sequence[SyntheticPlan],
+    output_path: str | Path,
+    columns: int = 4,
+    cell_size: tuple[int, int] = (280, 210),
+) -> Path:
+    """Compone una hoja de contacto con el overlay de GT + etiquetas por plano."""
+
+    rows = math.ceil(len(plans) / columns)
+    cell_width, cell_height = cell_size
+    canvas = Image.new("RGB", (columns * cell_width, rows * cell_height), PAPER_COLOR)
+    draw = ImageDraw.Draw(canvas)
+    for index, plan in enumerate(plans):
+        thumbnail = render_annotated_image(plan).resize((cell_width, cell_height))
+        row, col = divmod(index, columns)
+        left, top = col * cell_width, row * cell_height
+        canvas.paste(thumbnail, (left, top))
+        draw.text((left + 5, top + 5), plan.name, fill=(255, 0, 0))
+
+    path = Path(output_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    canvas.save(path)
+    return path
