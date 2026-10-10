@@ -190,12 +190,16 @@ model ProjectFile {
   width        Int?
   height       Int?
   checksum     String?
+  // Clave de idempotencia generada por el cliente: un reintento de la misma
+  // subida devuelve el archivo ya creado en lugar de duplicarlo.
+  clientKey    String?
   createdAt    DateTime @default(now())
 
   project  Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
   analyses AIAnalysis[]
 
   @@index([projectId, kind])
+  @@index([projectId, clientKey])
 }
 
 model ProjectVersion {

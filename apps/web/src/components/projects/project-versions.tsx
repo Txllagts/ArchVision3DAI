@@ -37,27 +37,33 @@ export function ProjectVersions({
     setLoading(true);
     setError(null);
 
-    const response = await fetch(`/api/projects/${projectId}/versions`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ label: trimmed }),
-    });
+    try {
+      const response = await fetch(`/api/projects/${projectId}/versions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ label: trimmed }),
+      });
 
-    setLoading(false);
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => null)) as {
+          error?: { message?: string };
+        } | null;
+        setError(payload?.error?.message ?? "No fue posible crear la version");
+        return;
+      }
 
-    if (!response.ok) {
-      const payload = (await response.json()) as { error?: { message?: string } };
-      setError(payload.error?.message ?? "No fue posible crear la version");
-      return;
+      const payload = (await response.json()) as { data: { id: string } };
+      setVersions((current) => [
+        { id: payload.data.id, label: trimmed, createdAt: new Date().toISOString() },
+        ...current,
+      ]);
+      setLabel("");
+      router.refresh();
+    } catch {
+      setError("Sin conexion con el servidor");
+    } finally {
+      setLoading(false);
     }
-
-    const payload = (await response.json()) as { data: { id: string } };
-    setVersions((current) => [
-      { id: payload.data.id, label: trimmed, createdAt: new Date().toISOString() },
-      ...current,
-    ]);
-    setLabel("");
-    router.refresh();
   }
 
   return (

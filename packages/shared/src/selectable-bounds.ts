@@ -2,6 +2,7 @@ import type {
   Column,
   Door,
   FurnitureInstance,
+  ImportedModel,
   Opening,
   Room,
   Roof,
@@ -12,6 +13,7 @@ import type {
   WindowEntity,
 } from "@archvision/types";
 import { FURNITURE_FALLBACK, furnitureById } from "./furniture-catalog";
+import { importedModelSize } from "./glb-bounds";
 
 export interface WorldBounds {
   min: { x: number; y: number; z: number };
@@ -54,6 +56,7 @@ export interface SelectableEntities {
   slab: Slab;
   room: Room;
   furniture: FurnitureInstance;
+  "imported-model": ImportedModel;
 }
 
 export type SelectableEntityKind = keyof SelectableEntities;
@@ -254,6 +257,21 @@ const boundsByKind: BoundsResolverMap = {
       item.rotation.y,
     );
   },
+  "imported-model": (model, scene) => {
+    // La caja real se lee de la cabecera del GLB (cacheada); hasta que ese
+    // calculo termina se usa un cubo por defecto, para que la seleccion por
+    // ventana funcione desde el primer render.
+    const size = importedModelSize(model.url, model.scale);
+    return rectangularBounds(
+      {
+        x: model.position.x,
+        y: elevationOf(scene, model.floorId) + model.position.y + size.y / 2,
+        z: model.position.z,
+      },
+      size,
+      model.rotation.y,
+    );
+  },
 };
 
 /** Bounds mundiales compartidos por los marquees 2D y 3D. */
@@ -301,6 +319,7 @@ export function getSelectionPivot(
   collect("slab", scene.slabs);
   collect("room", scene.rooms);
   collect("furniture", scene.furniture);
+  collect("imported-model", scene.importedModels);
 
   if (centers.length === 0) return null;
   const sum = centers.reduce(
@@ -334,6 +353,7 @@ export function getTransformTargetIds(
       ...scene.roofs,
       ...scene.slabs,
       ...scene.furniture,
+      ...scene.importedModels,
     ]
       .filter((entity) => entity.locked)
       .map((entity) => entity.id),

@@ -2,6 +2,7 @@ import { apiError, apiSuccess, withErrorHandling } from "@/lib/api/response";
 import { requireApiUser } from "@/lib/api/auth-guard";
 import { currentEntitlement } from "@/lib/billing/service";
 import { consume } from "@/lib/api/rate-limit";
+import { prisma } from "@archvision/database";
 import { QuotaExceededError } from "@/lib/projects/service";
 import {
   FILE_KINDS,
@@ -80,6 +81,11 @@ export async function POST(request: Request, context: RouteContext) {
 
     const kind = parseKind(form.get("kind")) ?? "floorplan";
     const role = form.get("role");
+    const clientKeyEntry = form.get("clientKey");
+    const clientKey =
+      typeof clientKeyEntry === "string" && clientKeyEntry.length > 0
+        ? clientKeyEntry.slice(0, 64)
+        : undefined;
     const data = new Uint8Array(await entry.arrayBuffer());
 
     try {
@@ -90,10 +96,22 @@ export async function POST(request: Request, context: RouteContext) {
         declaredMime: entry.type,
         data,
         plan: (await currentEntitlement(user.id)).plan,
+        clientKey,
       });
 
       if (!file) return apiError("NOT_FOUND", "Proyecto no encontrado");
-      return apiSuccess({ file }, 201);
+
+      // Revision actual de la escena: el cliente adopta el token tras cada
+      // subida para que el siguiente guardado use la base mas reciente.
+      const scene = await prisma.scene.findUnique({
+        where: { projectId: id },
+        select: { revision: true },
+      });
+
+      return apiSuccess(
+        { file, ...(scene ? { revision: scene.revision } : {}) },
+        201,
+      );
     } catch (error) {
       if (error instanceof FileValidationError) {
         return apiError("BAD_REQUEST", error.message);

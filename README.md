@@ -25,7 +25,7 @@ Imagen / Plano  →  Análisis IA  →  Modelo inicial  →  Corrección humana
 | 6 | Asistente: propone cambios, revisa el modelo y guía paso a paso | **Completa** |
 | 7 | Suscripciones de pago con Wompi: planes, cobros, renovación y límites | **Completa** |
 | 8 | Servicio Python: TripoSR, InstantMesh opcional y extrusión determinista de planos | Parcial |
-| 9 | Exportaciones GLB/GLTF/OBJ/STL/PNG | Pendiente |
+| 9 | Exportaciones GLB/GLTF/OBJ/STL/PNG (+ DXF de planta) | **Completa** |
 | 10 | Render, HDRI, simulación solar | Pendiente |
 | 11 | Colaboración, workspaces compartidos, enlaces | Pendiente |
 

@@ -9,11 +9,21 @@ ejecuta dentro de Docker. Se recomienda Python 3.11.
 1. Instala PyTorch CUDA desde `requirements.txt` y clona el repositorio oficial:
    `git clone --depth 1 https://github.com/VAST-AI-Research/TripoSR.git vendor/TripoSR`.
 2. Compila `torchmcubes` con el mismo toolkit CUDA usado por PyTorch.
-3. El modelo RMBG-1.4 ONNX se guarda en `models/rmbg-1.4.onnx`; ONNX Runtime
-   prefiere CUDA y puede ejecutar operaciones no soportadas en CPU. El modelo
-   debe obtenerse de [BRIA RMBG-1.4](https://huggingface.co/briaai/RMBG-1.4),
-   cuya licencia permite uso no comercial; para uso comercial se requiere un
-   acuerdo de BRIA. No se versionan los pesos.
+3. El modelo RMBG-1.4 ONNX vive en `models/rmbg-1.4.onnx`. Al arrancar, el
+   servicio valida la cabecera del archivo: si falta o no es un ONNX (por
+   ejemplo un `.pth` renombrado, que provocaba `InvalidProtobuf` en ONNX
+   Runtime) lo pone en cuarentena como `*.invalid-checkpoint` y descarga el
+   oficial `onnx/model.onnx` de
+   [BRIA RMBG-1.4](https://huggingface.co/briaai/RMBG-1.4) con
+   `huggingface-hub`. Ajusta con `REMBG_MODEL_REPO`,
+   `REMBG_MODEL_REPO_FILE` (p. ej. `onnx/model_fp16.onnx`) y
+   `REMBG_AUTO_DOWNLOAD=0` para desactivar la descarga automatica. Si
+   ONNX Runtime aun asi rechaza el archivo (p. ej. corrupto a mitad de
+   stream), se reinstala el oficial y se reintenta una vez antes de
+   degradar. Si la descarga falla, el servicio arranca igualmente sin la sesion RMBG y los
+   endpoints de imagen responden 503 con el motivo. La licencia permite uso
+   no comercial; para uso comercial se requiere un acuerdo de BRIA. No se
+   versionan los pesos.
 4. Define `SUPABASE_URL` y la clave `SUPABASE_SERVICE_ROLE_KEY` completa en
    `apps/ai-service/.env`. Al iniciar, el servicio crea el bucket
    privado `models-3d` si aun no existe y falla con un error claro si encuentra

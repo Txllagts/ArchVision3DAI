@@ -302,6 +302,7 @@ export function Inspector() {
   const slab = scene.slabs.find((item) => item.id === id);
   const room = scene.rooms.find((item) => item.id === id);
   const furniture = scene.furniture.find((item) => item.id === id);
+  const importedModel = scene.importedModels.find((item) => item.id === id);
 
   return (
     <div className="flex max-h-[45%] flex-col border-t border-line">
@@ -599,6 +600,21 @@ export function Inspector() {
             <TextRow label="Tipo" value="Mobiliario" />
             <TextRow label="Nombre" value={furniture.name} />
             <TextRow label="Catalogo" value={furniture.catalogId} />
+          </>
+        ) : null}
+
+        {importedModel ? (
+          <>
+            <TextRow label="Tipo" value="Modelo 3D importado" />
+            <TextRow label="Nombre" value={importedModel.name} />
+            <TextRow
+              label="Posicion"
+              value={`${importedModel.position.x.toFixed(2)} , ${importedModel.position.z.toFixed(2)}`}
+            />
+            <TextRow
+              label="Escala"
+              value={`${importedModel.scale.x.toFixed(2)} × ${importedModel.scale.y.toFixed(2)} × ${importedModel.scale.z.toFixed(2)}`}
+            />
           </>
         ) : null}
 

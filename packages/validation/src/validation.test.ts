@@ -78,6 +78,69 @@ describe("scene", () => {
     expect(problems).toHaveLength(1);
     expect(problems[0]).toContain("pared inexistente");
   });
+
+  it("acepta modelos importados con URL relativa de la app o absoluta", () => {
+    const scene = createEmptyScene();
+    scene.floors.push({
+      id: "floor-1",
+      name: "Planta baja",
+      level: 0,
+      elevation: 0,
+      height: 2.6,
+      visible: true,
+      locked: false,
+    });
+    const modelWithUrl = (id: string, url: string) => ({
+      id,
+      floorId: "floor-1",
+      name: "casilla.glb",
+      fileId: "file-1",
+      url,
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+      visible: true,
+      locked: false,
+      source: "import" as const,
+    });
+
+    scene.importedModels.push(
+      modelWithUrl("model-rel", "/api/projects/p-1/files/file-1/content"),
+      modelWithUrl("model-abs", "https://cdn.ejemplo.com/modelos/casa.glb"),
+    );
+
+    const result = sceneDocumentSchema.safeParse(scene);
+    expect(result.success).toBe(true);
+  });
+
+  it("rechaza esquemas de URL no descargables en modelos importados", () => {
+    const scene = createEmptyScene();
+    scene.floors.push({
+      id: "floor-1",
+      name: "Planta baja",
+      level: 0,
+      elevation: 0,
+      height: 2.6,
+      visible: true,
+      locked: false,
+    });
+    scene.importedModels.push({
+      id: "model-1",
+      floorId: "floor-1",
+      name: "caso raro.glb",
+      fileId: "file-1",
+      url: "javascript:alert(1)",
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+      visible: true,
+      locked: false,
+      source: "import",
+    });
+
+    const result = sceneDocumentSchema.safeParse(scene);
+    expect(result.success).toBe(false);
+  });
 });
 
 describe("commands", () => {

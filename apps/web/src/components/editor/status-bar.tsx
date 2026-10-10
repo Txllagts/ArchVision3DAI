@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { computeSceneMetrics, formatArea } from "@archvision/shared";
-import { useEditorStore } from "@/lib/editor/store";
+import { hasUnsavedChanges, useEditorStore } from "@/lib/editor/store";
 import { cn } from "@/lib/utils";
 
 /** Medidor de fotogramas por segundo, independiente del lienzo. */
@@ -52,12 +52,32 @@ export function EditorStatusBar() {
   const gridStep = useEditorStore((state) => state.gridStep);
   const showGrid = useEditorStore((state) => state.showGrid);
   const saveStatus = useEditorStore((state) => state.saveStatus);
+  const saveError = useEditorStore((state) => state.saveError);
   const lastSavedAt = useEditorStore((state) => state.lastSavedAt);
   const setSnapEnabled = useEditorStore((state) => state.setSnapEnabled);
   const setGridStep = useEditorStore((state) => state.setGridStep);
   const setShowGrid = useEditorStore((state) => state.setShowGrid);
 
   const metrics = computeSceneMetrics(scene);
+
+  const pending = hasUnsavedChanges({ saveStatus });
+  let syncLabel: string;
+  if (!pending) {
+    syncLabel = lastSavedAt
+      ? `Guardado ${new Date(lastSavedAt).toLocaleTimeString("es-CO", {
+          hour: "2-digit",
+          minute: "2-digit",
+        })}`
+      : "Guardado";
+  } else if (saveStatus === "saving") {
+    syncLabel = "Guardando...";
+  } else if (saveStatus === "error") {
+    syncLabel = "Pendiente · error al guardar";
+  } else if (saveStatus === "conflict") {
+    syncLabel = "Pendiente · conflicto de version";
+  } else {
+    syncLabel = "Pendiente";
+  }
 
   return (
     <footer className="flex h-8 shrink-0 items-center gap-4 border-t border-line bg-surface px-3 text-[11px] text-ink-subtle">
@@ -115,13 +135,9 @@ export function EditorStatusBar() {
             saveStatus === "dirty" && "text-warn",
             (saveStatus === "error" || saveStatus === "conflict") && "text-danger",
           )}
+          title={saveError ?? undefined}
         >
-          {saveStatus === "saved" && lastSavedAt
-            ? `Guardado ${new Date(lastSavedAt).toLocaleTimeString("es-CO", {
-                hour: "2-digit",
-                minute: "2-digit",
-              })}`
-            : saveStatus}
+          {syncLabel}
         </span>
       </div>
     </footer>

@@ -48,6 +48,7 @@ function groupsForFloor(scene: SceneDocument, floorId: string): OutlinerGroup[] 
     { key: "slabs", label: "Losas", items: pick(scene.slabs) },
     { key: "roofs", label: "Cubiertas", items: pick(scene.roofs) },
     { key: "furniture", label: "Mobiliario", items: pick(scene.furniture) },
+    { key: "models", label: "Modelos 3D", items: pick(scene.importedModels) },
     {
       key: "rooms",
       label: "Habitaciones",

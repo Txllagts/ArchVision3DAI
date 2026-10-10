@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import { createEmptyScene } from "@archvision/types";
-import { containsRect2D, getSelectableBounds, intersectsRect2D } from "./selectable-bounds";
+import {
+  containsRect2D,
+  getSelectableBounds,
+  getTransformTargetIds,
+  intersectsRect2D,
+} from "./selectable-bounds";
 
 describe("getSelectableBounds", () => {
   it("includes wall thickness and floor elevation in world coordinates", () => {
@@ -101,5 +106,97 @@ describe("getSelectableBounds", () => {
     expect(bounds.min.z).toBeCloseTo(-0.5);
     expect(bounds.max.z).toBeCloseTo(8.5);
     expect(bounds.max.y).toBeCloseTo(2 + 0.5 + 0.2 + 4.5 * Math.tan(Math.PI / 6));
+  });
+
+  it("usa las dimensiones reales del catalogo para el mobiliario", () => {
+    const scene = createEmptyScene();
+    scene.floors.push({
+      id: "floor-1",
+      name: "Floor 1",
+      level: 0,
+      elevation: 0,
+      height: 3,
+      visible: true,
+      locked: false,
+    });
+    const sofa = {
+      id: "sofa-1",
+      floorId: "floor-1",
+      name: "Sofa",
+      catalogId: "sofa-3-seat",
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1.2, y: 1, z: 1.1 },
+      visible: true,
+      locked: false,
+    };
+    scene.furniture.push(sofa);
+
+    // sofa-3-seat mide 2,1 x 0,9 en el catalogo; la instancia escala X y Z.
+    const bounds = getSelectableBounds("furniture", sofa, scene);
+    expect(bounds.max.x - bounds.min.x).toBeCloseTo(2.1 * 1.2);
+    expect(bounds.max.z - bounds.min.z).toBeCloseTo(0.9 * 1.1);
+  });
+});
+
+describe("getTransformTargetIds", () => {
+  function sceneWithDoor() {
+    const scene = createEmptyScene();
+    scene.floors.push({
+      id: "floor-1",
+      name: "Floor 1",
+      level: 0,
+      elevation: 0,
+      height: 3,
+      visible: true,
+      locked: false,
+    });
+    scene.walls.push({
+      id: "wall-1",
+      floorId: "floor-1",
+      name: "Wall 1",
+      start: { x: 0, y: 0 },
+      end: { x: 4, y: 0 },
+      height: 3,
+      thickness: 0.2,
+      baseOffset: 0,
+      visible: true,
+      locked: false,
+    });
+    scene.doors.push({
+      id: "door-1",
+      wallId: "wall-1",
+      floorId: "floor-1",
+      name: "Door 1",
+      kind: "single",
+      offset: 2,
+      width: 0.9,
+      height: 2.05,
+      openingDirection: "inward-left",
+      visible: true,
+      locked: false,
+    });
+    return scene;
+  }
+
+  it("expande un vano seleccionado a su pared anfitriona", () => {
+    const scene = sceneWithDoor();
+    const targets = getTransformTargetIds(scene, ["door-1"]);
+    expect(targets.has("door-1")).toBe(true);
+    expect(targets.has("wall-1")).toBe(true);
+  });
+
+  it("no expande un vano bloqueado ni su muro bloqueado", () => {
+    const scene = sceneWithDoor();
+    scene.doors[0]!.locked = true;
+    const targets = getTransformTargetIds(scene, ["door-1"]);
+    expect(targets.has("door-1")).toBe(false);
+    expect(targets.has("wall-1")).toBe(false);
+
+    const scene2 = sceneWithDoor();
+    scene2.walls[0]!.locked = true;
+    const targets2 = getTransformTargetIds(scene2, ["door-1"]);
+    expect(targets2.has("door-1")).toBe(true);
+    expect(targets2.has("wall-1")).toBe(false);
   });
 });
