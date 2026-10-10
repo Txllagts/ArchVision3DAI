@@ -72,6 +72,16 @@ export function computeSceneBounds(scene: SceneDocument): SceneBounds {
     maxY = Math.max(maxY, bounds.max.y);
   }
 
+  // Un proyecto puede ser solo un modelo importado: sin esto, el encuadre
+  // inicial se quedaba en el mundo vacio y el GLB parecia no estar.
+  for (const model of scene.importedModels) {
+    if (!model.visible) continue;
+    const bounds = getSelectableBounds("imported-model", model, scene);
+    include(bounds.min.x, bounds.min.z);
+    include(bounds.max.x, bounds.max.z);
+    maxY = Math.max(maxY, bounds.max.y);
+  }
+
   if (!Number.isFinite(minX)) return EMPTY_BOUNDS;
 
   const size = {

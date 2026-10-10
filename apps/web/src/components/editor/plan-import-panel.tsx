@@ -1,12 +1,14 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { Loader2, Trash2, Upload, X } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { Loader2, Trash2, X } from "lucide-react";
 import { detectWalls, detectWallsRemote } from "@archvision/vision";
 import type { PlanUnderlay } from "@archvision/types";
 import { useEditorStore, type ProposedWall } from "@/lib/editor/store";
 import { imageToWorld, loadImageData, recalibrate } from "@/lib/editor/underlay";
 import { cn } from "@/lib/utils";
+import { useFileImport, type ProjectFile } from "@/lib/editor/use-file-import";
+import { AssetDropzone } from "@/components/ui/asset-dropzone";
 
 /**
  * Importacion de planos.
@@ -17,16 +19,6 @@ import { cn } from "@/lib/utils";
  *
  * La deteccion nunca escribe en el documento: propone, y el usuario acepta.
  */
-
-interface ProjectFile {
-  id: string;
-  originalName: string;
-  mimeType: string;
-  sizeBytes: number;
-  width: number | null;
-  height: number | null;
-  url: string;
-}
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -54,6 +46,7 @@ export function PlanImportPanel() {
   const setOpen = useEditorStore((state) => state.setPlanPanelOpen);
   const projectId = useEditorStore((state) => state.projectId);
   const underlay = useEditorStore((state) => state.scene.underlay ?? null);
+  const activeFloorId = useEditorStore((state) => state.activeFloorId);
   const dispatch = useEditorStore((state) => state.dispatch);
   const setMessage = useEditorStore((state) => state.setMessage);
   const setTool = useEditorStore((state) => state.setTool);
@@ -65,9 +58,20 @@ export function PlanImportPanel() {
   const applyProposal = useEditorStore((state) => state.applyProposal);
 
   const [files, setFiles] = useState<ProjectFile[]>([]);
-  const [busy, setBusy] = useState<"upload" | "detect" | null>(null);
   const [realLength, setRealLength] = useState("5");
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [detectBusy, setDetectBusy] = useState(false);
+
+  const { busy, lastResult, uploadFile, handleFileSelect, handleDrop, handleDragOver, acceptedTypes, acceptedExtensions } =
+    useFileImport({
+      projectId,
+      activeFloorId,
+      autoAnalyzeFloorplan: true,
+      onSuccess: async (uploaded, kind) => {
+        if (kind === "floorplan") {
+          await refresh();
+        }
+      },
+    });
 
   const refresh = useCallback(async () => {
     if (!projectId) return;
@@ -84,78 +88,6 @@ export function PlanImportPanel() {
   if (!open) return null;
 
   const active = files.find((file) => file.id === underlay?.fileId) ?? null;
-
-  const upload = async (file: File) => {
-    setBusy("upload");
-    try {
-      const body = new FormData();
-      body.append("file", file);
-      body.append("kind", "floorplan");
-
-      const response = await fetch(`/api/projects/${projectId}/files`, {
-        method: "POST",
-        body,
-      });
-      const payload = (await response.json()) as {
-        data?: { file?: ProjectFile };
-        error?: { message?: string };
-      };
-
-      if (!response.ok || !payload.data?.file) {
-        setMessage({
-          kind: "error",
-          text: payload.error?.message ?? "No se pudo subir el plano",
-        });
-        return;
-      }
-
-      const uploaded = payload.data.file;
-      await refresh();
-
-      if (uploaded.mimeType === "application/pdf") {
-        setMessage({
-          kind: "info",
-          text: "PDF guardado. Por ahora solo se puede calcar desde imagen: exportalo a PNG.",
-        });
-        return;
-      }
-
-      let width = uploaded.width;
-      let height = uploaded.height;
-
-      if (!width || !height) {
-        try {
-          const dims = await getImageDimensions(uploaded.url);
-          width = dims.width;
-          height = dims.height;
-        } catch {
-          setMessage({ kind: "error", text: "No se pudieron leer las dimensiones del plano" });
-          return;
-        }
-      }
-
-      // Escala inicial arbitraria pero razonable: 50 px/m deja un plano
-      // domestico a un tamano manejable hasta que el usuario calibre.
-      const created: PlanUnderlay = {
-        fileId: uploaded.id,
-        pixelsPerMeter: 50,
-        offset: { x: 0, y: 0 },
-        rotationDeg: 0,
-        opacity: 0.55,
-        visible: true,
-        width,
-        height,
-      };
-
-      dispatch({ type: "SET_UNDERLAY", underlay: created });
-      setMessage({
-        kind: "info",
-        text: "Plano colocado. Marca una medida conocida para fijar la escala.",
-      });
-    } finally {
-      setBusy(null);
-    }
-  };
 
   const patch = (changes: Partial<PlanUnderlay>) => {
     if (!underlay) return;
@@ -184,7 +116,7 @@ export function PlanImportPanel() {
 
   const detect = async () => {
     if (!underlay || !active) return;
-    setBusy("detect");
+    setDetectBusy(true);
 
     try {
       let report;
@@ -238,7 +170,7 @@ export function PlanImportPanel() {
         text: error instanceof Error ? error.message : "Fallo la deteccion",
       });
     } finally {
-      setBusy(null);
+      setDetectBusy(false);
     }
   };
 
@@ -273,31 +205,14 @@ export function PlanImportPanel() {
           <h3 className="pb-1 text-[10px] font-semibold uppercase tracking-wider text-ink-subtle">
             1. Archivo
           </h3>
-          <input
-            ref={inputRef}
-            type="file"
-            accept="image/png,image/jpeg,image/webp,application/pdf"
-            className="hidden"
-            onChange={(event) => {
-              const file = event.target.files?.[0];
-              event.target.value = "";
-              if (file) void upload(file);
-            }}
-          />
-          <button
-            type="button"
+          <AssetDropzone
+            category="all"
+            onFileSelect={(file) => void uploadFile(file)}
+            busy={busy !== null}
             disabled={busy !== null}
-            onClick={() => inputRef.current?.click()}
-            className="flex w-full items-center justify-center gap-2 rounded border border-dashed border-line-strong px-3 py-3 text-[11px] text-ink-muted hover:border-accent hover:text-ink disabled:opacity-50"
-          >
-            {busy === "upload" ? (
-              <Loader2 className="size-3.5 animate-spin" aria-hidden />
-            ) : (
-              <Upload className="size-3.5" aria-hidden />
-            )}
-            Subir plano (PNG, JPG, WebP, PDF)
-          </button>
-
+            inputId="plan-import-file"
+            helpText="PNG, JPG, WebP, PDF, GLB, GLTF"
+          />
           {files.length > 0 ? (
             <ul className="mt-2 space-y-1">
               {files.map((file) => (
@@ -456,11 +371,11 @@ export function PlanImportPanel() {
 
               <button
                 type="button"
-                disabled={busy !== null || !active}
+                disabled={!!busy || detectBusy || !active}
                 onClick={() => void detect()}
                 className="flex w-full items-center justify-center gap-2 rounded border border-line-strong px-2 py-1.5 text-[11px] text-ink enabled:hover:bg-surface-2 disabled:opacity-40"
               >
-                {busy === "detect" ? (
+                {detectBusy ? (
                   <Loader2 className="size-3.5 animate-spin" aria-hidden />
                 ) : null}
                 Analizar el plano

@@ -27,6 +27,9 @@ class Settings(BaseSettings):
     instantmesh_config: str = "configs/instant-mesh-large.yaml"
     instantmesh_timeout_seconds: int = Field(default=900, gt=0)
     rembg_model_path: Path = Path("models/rmbg-1.4.onnx")
+    rembg_model_repo: str = "briaai/RMBG-1.4"
+    rembg_model_repo_file: str = "onnx/model.onnx"
+    rembg_auto_download: bool = True
     oda_file_converter: str | None = None
     supabase_url: str = Field(default="", validation_alias="SUPABASE_URL")
     supabase_service_role_key: str = Field(

@@ -91,6 +91,8 @@ describe("encuadres", () => {
     const scene: SceneDocument = createDemoHouseScene();
     const bounds = computeSceneBounds(scene);
 
+    // La casa mide 10 x 8 m, pero la caja envolvente incluye el alero de la
+    // cubierta (0,6 m por lado) para que el encuadre no recorte los faldones.
     expect(bounds.size.x).toBeCloseTo(11.2, 3);
     expect(bounds.size.z).toBeCloseTo(9.2, 3);
     expect(bounds.max.y).toBeGreaterThan(2.7);

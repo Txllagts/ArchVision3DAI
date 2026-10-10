@@ -348,6 +348,77 @@ describe("command-reducer", () => {
     expect(rotated.walls[0]?.start.y).toBeCloseTo(2);
     expect(rotated.doors[0]?.wallId).toBe(wall.id);
   });
+
+  it("arrastra un vano moviendo su pared anfitriona y conservando el offset", () => {
+    const scene = sceneWithRoom();
+    const wall = scene.walls[0]!;
+    scene.doors.push({
+      id: "door-drag-test",
+      wallId: wall.id,
+      floorId: wall.floorId,
+      name: "Puerta de prueba",
+      kind: "single",
+      offset: 2,
+      width: 0.9,
+      height: 2.05,
+      openingDirection: "inward-left",
+      visible: true,
+      locked: false,
+    });
+
+    const moved = applyCommand(scene, {
+      type: "TRANSFORM_OBJECTS",
+      ids: ["door-drag-test"],
+      translate: { x: 1.5, y: 0, z: -0.5 },
+    });
+
+    expect(moved.walls[0]?.start.x).toBeCloseTo(wall.start.x + 1.5);
+    expect(moved.walls[0]?.start.y).toBeCloseTo(wall.start.y - 0.5);
+    expect(moved.walls[0]?.end.x).toBeCloseTo(wall.end.x + 1.5);
+    expect(moved.walls[0]?.end.y).toBeCloseTo(wall.end.y - 0.5);
+    expect(moved.doors[0]?.offset).toBe(2);
+    expect(moved.doors[0]?.wallId).toBe(wall.id);
+  });
+
+  it("traslada mobiliario y modelo importado con el mismo translate", () => {
+    const scene = createDefaultScene();
+    const floorId = scene.floors[0]!.id;
+    scene.furniture.push({
+      id: "furniture-translate-test",
+      floorId,
+      name: "Sofa",
+      catalogId: "sofa-3-seat",
+      position: { x: 1, y: 0, z: 2 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+      visible: true,
+      locked: false,
+    });
+    scene.importedModels.push({
+      id: "model-translate-test",
+      floorId,
+      name: "Modelo",
+      fileId: "file-1",
+      url: "/api/projects/p1/files/file-1/content",
+      position: { x: -2, y: 0, z: 3 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+      visible: true,
+      locked: false,
+      source: "import",
+    });
+
+    const moved = applyCommand(scene, {
+      type: "TRANSFORM_OBJECTS",
+      ids: ["furniture-translate-test", "model-translate-test"],
+      translate: { x: 0.5, y: 0, z: -1 },
+    });
+
+    expect(moved.furniture[0]?.position.x).toBeCloseTo(1.5);
+    expect(moved.furniture[0]?.position.z).toBeCloseTo(1);
+    expect(moved.importedModels[0]?.position.x).toBeCloseTo(-1.5);
+    expect(moved.importedModels[0]?.position.z).toBeCloseTo(2);
+  });
 });
 
 describe("deteccion de habitaciones", () => {

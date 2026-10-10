@@ -17,6 +17,8 @@ import { Outliner } from "./outliner";
 import { Inspector } from "./inspector";
 import { EditorStatusBar } from "./status-bar";
 import { CommandPalette } from "./command-palette";
+import { ExportModal } from "./export-modal";
+import { ConflictModal } from "./conflict-modal";
 import { MaterialsPanel } from "./materials-panel";
 import { PlanImportPanel } from "./plan-import-panel";
 import { AssistantPanel } from "./assistant-panel";
@@ -250,6 +252,8 @@ export function EditorShell({
 
       <EditorStatusBar />
       <CommandPalette onSave={() => void saveNow()} />
+      <ExportModal />
+      <ConflictModal />
     </div>
   );
 }

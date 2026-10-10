@@ -79,6 +79,12 @@ export function CommandPalette({ onSave }: { onSave: () => void }) {
       { id: "copy", label: "Copiar selección", hint: "Ctrl+C", run: () => store.copySelection() },
       { id: "paste", label: "Pegar selección", hint: "Ctrl+V", run: () => store.pasteSelection() },
       { id: "save", label: "Guardar proyecto", hint: "Ctrl+S", run: onSave },
+      {
+        id: "export",
+        label: "Exportar modelo (GLB, OBJ, STL, DXF)",
+        hint: "Ctrl+E",
+        run: () => store.setExportOpen(true),
+      },
     ];
   }, [onSave]);
 

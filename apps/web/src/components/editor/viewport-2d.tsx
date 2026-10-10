@@ -14,11 +14,16 @@ import { Layers } from "lucide-react";
 import type { MaterialDefinition, SceneDocument, Vector2, Wall } from "@archvision/types";
 import {
   distance2,
+  cachedGlbBounds,
   containsRect2D,
   formatArea,
   formatLength,
+  FURNITURE_FALLBACK,
+  furnitureById,
   getSelectableBounds,
+  importedModelSize,
   intersectsRect2D,
+  loadGlbBounds,
   polygonCentroid,
   type SelectableEntities,
   type SelectableEntityKind,
@@ -48,8 +53,7 @@ type DragState =
   | { kind: "pan"; origin: Vector2; startCenter: Vector2 }
   | { kind: "node"; wallId: string; end: "start" | "end"; preview: Vector2 }
   | {
-      kind: "wall";
-      wallId: string;
+      kind: "move";
       ids: string[];
       origin: Vector2;
       delta: Vector2;
@@ -66,6 +70,56 @@ type DragState =
 
 const MIN_SCALE = 4;
 const MAX_SCALE = 320;
+
+/**
+ * Huella en planta de un modelo 3D importado.
+ *
+ * El GLB se renderiza en el visor 3D; aqui solo se dibuja su proyeccion: un
+ * rectangulo con el tamaño real de la caja del modelo, centrado donde el
+ * modelo está apoyado y girado con su rotacion. La caja se lee de la cabecera
+ * del archivo (ver `importedModelSize`), asi que la planta no carga Three.js
+ * ni se bloquea.
+ */
+function importedModelFootprint(
+  model: SceneDocument["importedModels"][number],
+): {
+  center: Vector2;
+  size: { x: number; z: number };
+  rotationDeg: number;
+} {
+  const size = importedModelSize(model.url, model.scale);
+  return {
+    center: { x: model.position.x, y: model.position.z },
+    size: { x: size.x, z: size.z },
+    rotationDeg: (-model.rotation.y * 180) / Math.PI,
+  };
+}
+
+/**
+ * Huella en planta de una pieza de mobiliario.
+ *
+ * Usa las dimensiones reales del catalogo (ancho x fondo) escaladas por la
+ * instancia y giradas con su rotacion, en lugar del cuadrado fijo de 0,6 m
+ * que no representaba nada. Si el catalogo ya no conoce la pieza se cae a la
+ * misma caja por defecto que usan los bounds seleccionables.
+ */
+function furnitureFootprint(item: SceneDocument["furniture"][number]): {
+  center: Vector2;
+  size: { x: number; z: number };
+  rotationDeg: number;
+  color: string;
+} {
+  const catalog = furnitureById(item.catalogId) ?? FURNITURE_FALLBACK;
+  return {
+    center: { x: item.position.x, y: item.position.z },
+    size: {
+      x: catalog.size.x * item.scale.x,
+      z: catalog.size.z * item.scale.z,
+    },
+    rotationDeg: (-item.rotation.y * 180) / Math.PI,
+    color: catalog.color,
+  };
+}
 
 function boundsOfScene(scene: SceneDocument): { min: Vector2; max: Vector2 } {
   let minX = Number.POSITIVE_INFINITY;
@@ -86,6 +140,14 @@ function boundsOfScene(scene: SceneDocument): { min: Vector2; max: Vector2 } {
   }
   for (const slab of scene.slabs) for (const point of slab.outline) include(point);
 
+  // Un proyecto que solo tiene modelos importados tambien tiene extension:
+  // sin esto, el encuadre inicial se quedaba en el mundo vacio de ±5 m.
+  for (const model of scene.importedModels) {
+    const footprint = importedModelFootprint(model);
+    include({ x: footprint.center.x - footprint.size.x / 2, y: footprint.center.y - footprint.size.z / 2 });
+    include({ x: footprint.center.x + footprint.size.x / 2, y: footprint.center.y + footprint.size.z / 2 });
+  }
+
   if (!Number.isFinite(minX)) {
     return { min: { x: -5, y: -5 }, max: { x: 5, y: 5 } };
   }
@@ -103,6 +165,8 @@ export function Viewport2D() {
   const [drawStart, setDrawStart] = useState<Vector2 | null>(null);
   const [drag, setDrag] = useState<DragState>(null);
   const fitted = useRef(false);
+  /** Solo fuerza un render cuando llega la caja de un modelo importado. */
+  const [modelBoundsVersion, setModelBoundsVersion] = useState(0);
 
   const scene = useEditorStore((state) => state.scene);
   const projectId = useEditorStore((state) => state.projectId);
@@ -152,6 +216,46 @@ export function Viewport2D() {
     () => scene.furniture.filter((item) => item.floorId === activeFloor?.id),
     [scene.furniture, activeFloor?.id],
   );
+  const importedModels = useMemo(
+    () => scene.importedModels.filter((model) => model.floorId === activeFloor?.id),
+    [scene.importedModels, activeFloor?.id],
+  );
+  // `modelBoundsVersion` entra a proposito: cuando llega la caja real de un
+  // GLB, la huella se recalcula con sus medidas verdadeeras.
+  const modelFootprints = useMemo(
+    () => importedModels.map((model) => ({ model, footprint: importedModelFootprint(model) })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [importedModels, modelBoundsVersion],
+  );
+  const furnitureFootprints = useMemo(
+    () => furniture.map((item) => ({ item, footprint: furnitureFootprint(item) })),
+    [furniture],
+  );
+
+  // La caja de cada GLB se descarga una sola vez y queda en cache. Mientras
+  // llega, la planta dibuja el tamaño por defecto: el modelo se ve desde el
+  // primer render y afina su huella cuando se conoce la real.
+  useEffect(() => {
+    if (importedModels.length === 0) return;
+    let cancelled = false;
+
+    const pending = importedModels
+      .filter((model) => model.visible && cachedGlbBounds(model.url) === null)
+      .map((model) => model.url);
+
+    if (pending.length === 0) return;
+
+    void Promise.all(pending.map((url) => loadGlbBounds(url))).then((results) => {
+      if (cancelled) return;
+      if (results.some((bounds) => bounds !== null)) {
+        setModelBoundsVersion((version) => version + 1);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [importedModels]);
 
   // --- Encaje al contenedor -------------------------------------------------
   useLayoutEffect(() => {
@@ -233,6 +337,33 @@ export function Viewport2D() {
   );
 
   // --- Interaccion ----------------------------------------------------------
+
+  /**
+   * Inicia el arrastre de una entidad (muro, mueble, huella de modelo o vano)
+   * con la herramienta Seleccion.
+   *
+   * Si el objeto ya forma parte de una seleccion multiple se arrastra el grupo
+   * (sin las habitaciones, que el reductor expandiria a toda la planta). Los
+   * vanos no tienen transformacion propia: el reductor expande su id al muro
+   * anfitrion, igual que en el visor 3D.
+   */
+  const startMoveDrag = useCallback(
+    (event: ReactPointerEvent<SVGElement>, id: string) => {
+      if (tool !== "select" || event.button !== 0) return;
+      event.stopPropagation();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      const wasSelected = selection.has(id);
+      const ids =
+        wasSelected && selectionList.length > 1
+          ? selectionList.filter((entityId) => !rooms.some((room) => room.id === entityId))
+          : [id];
+      if (!wasSelected || event.shiftKey) select([id], event.shiftKey);
+      const raw = toWorld(event.clientX, event.clientY);
+      setDrag({ kind: "move", ids, origin: raw, delta: { x: 0, y: 0 } });
+    },
+    [rooms, selection, selectionList, select, tool, toWorld],
+  );
+
   const handlePointerDown = useCallback(
     (event: ReactPointerEvent<SVGSVGElement>) => {
       if (!activeFloor) return;
@@ -374,7 +505,7 @@ export function Viewport2D() {
         return;
       }
 
-      if (drag.kind === "wall") {
+      if (drag.kind === "move") {
         setDrag({
           ...drag,
           delta: { x: raw.x - drag.origin.x, y: raw.y - drag.origin.y },
@@ -412,7 +543,7 @@ export function Viewport2D() {
       });
     }
 
-    if (drag.kind === "wall" && (drag.delta.x !== 0 || drag.delta.y !== 0)) {
+    if (drag.kind === "move" && (drag.delta.x !== 0 || drag.delta.y !== 0)) {
       dispatch({
         type: "TRANSFORM_OBJECTS",
         ids: drag.ids,
@@ -440,6 +571,11 @@ export function Viewport2D() {
         maxY: Math.max(drag.origin.y, current.y),
       };
       const crossing = current.x < drag.origin.x;
+      // Las habitaciones quedan fuera del marquee: su poligono abarca todo
+      // el interior y `getTransformTargetIds` las expande a todos sus muros,
+      // de modo que cualquier ventana convertia la seleccion en un grupo
+      // implicito que arrastraba la planta entera. Siguen siendo seleccionables
+      // con un clic directo sobre el poligono.
       const ids: string[] = [];
       const collect = <Kind extends SelectableEntityKind>(
         kind: Kind,
@@ -472,14 +608,13 @@ export function Viewport2D() {
       collect("window", scene.windows);
       collect("opening", scene.openings);
       collect("column", columns);
-      collect("stair", stairs);
-      collect("room", rooms);
       collect("furniture", furniture);
+      collect("imported-model", importedModels);
       select(ids, event.shiftKey);
     }
 
     setDrag(null);
-  }, [activeFloor?.id, columns, dispatch, drag, furniture, rooms, scene, select, stairs, toWorld, walls]);
+  }, [activeFloor?.id, columns, dispatch, drag, furniture, importedModels, scene, select, toWorld, walls]);
 
   const handleWheel = useCallback(
     (event: ReactWheelEvent<SVGSVGElement>) => {
@@ -513,7 +648,7 @@ export function Viewport2D() {
         ? { start: drag.preview, end: wall.end }
         : { start: wall.start, end: drag.preview };
     }
-    if (drag?.kind === "wall" && drag.ids.includes(wall.id)) {
+    if (drag?.kind === "move" && drag.ids.includes(wall.id)) {
       return {
         start: { x: wall.start.x + drag.delta.x, y: wall.start.y + drag.delta.y },
         end: { x: wall.end.x + drag.delta.x, y: wall.end.y + drag.delta.y },
@@ -670,6 +805,56 @@ export function Viewport2D() {
           strokeWidth={1}
         />
 
+        {/*
+          Modelos 3D importados: huella en planta.
+
+          Va debajo de habitaciones, muros, vanos y mobiliario: la huella es
+          una referencia de planta, no una capa que deba comerse los clics de
+          las entidades del documento. Al quedar detras, cada muro, vano o
+          mueble se selecciona y arrastra por separado aunque el modelo
+          cubra la planta; la propia huella sigue siendo seleccionable en las
+          zonas que no cubre ninguna entidad (por ejemplo, un proyecto que
+          solo tiene el modelo).
+        */}
+        {modelFootprints.map(({ model, footprint }) => {
+          const [baseX, baseY] = toScreen(footprint.center);
+          const offset =
+            drag?.kind === "move" && drag.ids.includes(model.id)
+              ? { x: drag.delta.x * view.scale, y: drag.delta.y * view.scale }
+              : { x: 0, y: 0 };
+          const cx = baseX + offset.x;
+          const cy = baseY + offset.y;
+          const width = Math.max(4, footprint.size.x * view.scale);
+          const height = Math.max(4, footprint.size.z * view.scale);
+          const isSelected = selection.has(model.id);
+
+          return (
+            <rect
+              key={model.id}
+              x={cx - width / 2}
+              y={cy - height / 2}
+              width={width}
+              height={height}
+              rx={2}
+              transform={`rotate(${footprint.rotationDeg} ${cx} ${cy})`}
+              fill={isSelected ? "rgba(34,211,238,0.18)" : "rgba(125,211,252,0.08)"}
+              stroke={isSelected ? "#22d3ee" : "#7dd3fc"}
+              strokeWidth={isSelected ? 1.5 : 1}
+              strokeDasharray="4 3"
+              opacity={model.visible ? 0.9 : 0.3}
+              style={{ cursor: tool === "select" ? "move" : "default" }}
+              onPointerDown={(event) => {
+                if (tool === "paint" && event.button === 0) {
+                  event.stopPropagation();
+                  paintMaterial(model.id);
+                  return;
+                }
+                startMoveDrag(event, model.id);
+              }}
+            />
+          );
+        })}
+
         {/* Habitaciones */}
         {rooms.map((room) => {
           const points = room.polygon
@@ -795,22 +980,7 @@ export function Viewport2D() {
                     paintMaterial(wall.id);
                     return;
                   }
-                  if (tool !== "select" || event.button !== 0) return;
-                  event.stopPropagation();
-                  event.currentTarget.setPointerCapture(event.pointerId);
-                  const wasSelected = selection.has(wall.id);
-                  const ids = wasSelected && selectionList.length > 1
-                    ? [...selectionList]
-                    : [wall.id];
-                  if (!wasSelected || event.shiftKey) select([wall.id], event.shiftKey);
-                  const raw = toWorld(event.clientX, event.clientY);
-                  setDrag({
-                    kind: "wall",
-                    wallId: wall.id,
-                    ids,
-                    origin: raw,
-                    delta: { x: 0, y: 0 },
-                  });
+                  startMoveDrag(event, wall.id);
                 }}
               />
 
@@ -863,7 +1033,7 @@ export function Viewport2D() {
         {openingMarkers.map((marker) => {
           const [baseX, baseY] = toScreen(marker.center);
           const offset =
-            drag?.kind === "wall" &&
+            drag?.kind === "move" &&
             (drag.ids.includes(marker.id) || drag.ids.includes(marker.wallId))
               ? { x: drag.delta.x * view.scale, y: drag.delta.y * view.scale }
               : { x: 0, y: 0 };
@@ -892,12 +1062,8 @@ export function Viewport2D() {
               }
               stroke="#0d1117"
               strokeWidth={1}
-              style={{ cursor: tool === "select" ? "pointer" : "default" }}
-              onPointerDown={(event) => {
-                if (tool !== "select" || event.button !== 0) return;
-                event.stopPropagation();
-                select([marker.id], event.shiftKey);
-              }}
+              style={{ cursor: tool === "select" ? "move" : "default" }}
+              onPointerDown={(event) => startMoveDrag(event, marker.id)}
             />
           );
         })}
@@ -906,7 +1072,7 @@ export function Viewport2D() {
         {columns.map((column) => {
           const [baseX, baseY] = toScreen(column.position);
           const offset =
-            drag?.kind === "wall" && drag.ids.includes(column.id)
+            drag?.kind === "move" && drag.ids.includes(column.id)
               ? { x: drag.delta.x * view.scale, y: drag.delta.y * view.scale }
               : { x: 0, y: 0 };
           const cx = baseX + offset.x;
@@ -1244,30 +1410,36 @@ export function Viewport2D() {
         })}
 
         {/* Mobiliario */}
-        {furniture.map((item) => {
-          const [baseX, baseY] = toScreen({ x: item.position.x, y: item.position.z });
+        {furnitureFootprints.map(({ item, footprint }) => {
+          const [baseX, baseY] = toScreen(footprint.center);
           const offset =
-            drag?.kind === "wall" && drag.ids.includes(item.id)
+            drag?.kind === "move" && drag.ids.includes(item.id)
               ? { x: drag.delta.x * view.scale, y: drag.delta.y * view.scale }
               : { x: 0, y: 0 };
           const cx = baseX + offset.x;
           const cy = baseY + offset.y;
-          const size = Math.max(6, 0.6 * view.scale);
+          const width = Math.max(6, footprint.size.x * view.scale);
+          const height = Math.max(6, footprint.size.z * view.scale);
+          const isSelected = selection.has(item.id);
           return (
             <rect
               key={item.id}
-              x={cx - size / 2}
-              y={cy - size / 2}
-              width={size}
-              height={size}
+              x={cx - width / 2}
+              y={cy - height / 2}
+              width={width}
+              height={height}
               rx={2}
-              fill={selection.has(item.id) ? "#22d3ee" : "#5f6b7a"}
+              transform={`rotate(${footprint.rotationDeg} ${cx} ${cy})`}
+              fill={isSelected ? "#22d3ee" : footprint.color}
               opacity={0.85}
-              style={{ cursor: tool === "select" ? "pointer" : "default" }}
+              style={{ cursor: tool === "select" ? "move" : "default" }}
               onPointerDown={(event) => {
-                if (tool !== "select" || event.button !== 0) return;
-                event.stopPropagation();
-                select([item.id], event.shiftKey);
+                if (tool === "paint" && event.button === 0) {
+                  event.stopPropagation();
+                  paintMaterial(item.id);
+                  return;
+                }
+                startMoveDrag(event, item.id);
               }}
             />
           );
