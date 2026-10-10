@@ -77,13 +77,16 @@ def _evaluate(
     tolerance: float,
     step: float,
     settings: Settings,
+    preprocess: bool,
 ) -> tuple[float, float, float, dict[str, Any] | None, list[tuple[tuple[float, float], tuple[float, float]]]]:
     """Corre el análisis sobre un plano y devuelve métricas + resultado."""
 
     ground_truth = _wall_runs(plan)
     data = _png_bytes(plan.image)
     try:
-        result = analyze_floorplan(f"{plan.name}.png", data, settings)
+        result = analyze_floorplan(
+            f"{plan.name}.png", data, settings, preprocess=preprocess
+        )
         entities = list(result.get("entities", []))
     except InvalidFloorplanError:
         return 0.0, 0.0, 0.0, None, []
@@ -145,6 +148,7 @@ def _sweep_rotation(
     tolerance: float,
     step: float,
     settings: Settings,
+    preprocess: bool,
 ) -> tuple[
     dict[float, list[tuple[float, float, float]]],
     dict[float, tuple[SyntheticPlan, dict[str, Any] | None]],
@@ -157,7 +161,7 @@ def _sweep_rotation(
         for angle in angles:
             rotated = rotate_plan(plan, angle)
             precision, recall, f1, result, _ = _evaluate(
-                rotated, tolerance, step, settings
+                rotated, tolerance, step, settings, preprocess
             )
             per_angle[angle].append((precision, recall, f1))
             if index == 0:
@@ -171,12 +175,15 @@ def _sweep_shear(
     tolerance: float,
     step: float,
     settings: Settings,
+    preprocess: bool,
 ) -> dict[float, list[tuple[float, float, float]]]:
     per_value: dict[float, list[tuple[float, float, float]]] = {value: [] for value in values}
     for plan in plans:
         for value in values:
             sheared = shear_plan(plan, value)
-            precision, recall, f1, _, _ = _evaluate(sheared, tolerance, step, settings)
+            precision, recall, f1, _, _ = _evaluate(
+                sheared, tolerance, step, settings, preprocess
+            )
             per_value[value].append((precision, recall, f1))
     return per_value
 
@@ -188,6 +195,7 @@ def _sweep_illumination(
     tolerance: float,
     step: float,
     settings: Settings,
+    preprocess: bool,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for intensity in intensities:
@@ -198,7 +206,7 @@ def _sweep_illumination(
         for plan in plans:
             illuminated = illuminate_plan(plan, intensity)
             precision, recall, f1, result, detected = _evaluate(
-                illuminated, tolerance, step, settings
+                illuminated, tolerance, step, settings, preprocess
             )
             precisions.append(precision)
             recalls.append(recall)
@@ -227,6 +235,7 @@ def _sweep_shadow(
     tolerance: float,
     step: float,
     settings: Settings,
+    preprocess: bool,
 ) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for strength in strengths:
@@ -238,7 +247,7 @@ def _sweep_shadow(
             rng = random.Random(0)  # banda fija para reproducibilidad
             shadowed = illuminate_plan(plan, 0.0, shadow=strength, rng=rng)
             precision, recall, f1, result, detected = _evaluate(
-                shadowed, tolerance, step, settings
+                shadowed, tolerance, step, settings, preprocess
             )
             precisions.append(precision)
             recalls.append(recall)
@@ -438,6 +447,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--tolerance", type=float, default=DEFAULT_TOLERANCE, help="Tolerancia en px."
     )
     parser.add_argument("--out", type=Path, default=DEFAULT_OUTPUT, help="Carpeta de salida.")
+    parser.add_argument(
+        "--preprocess",
+        action="store_true",
+        help="Aplana la iluminación antes de detectar muros (flatten_illumination).",
+    )
     args = parser.parse_args(argv)
 
     output_dir = Path(args.out)
@@ -446,9 +460,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     settings = Settings(_env_file=None)
     tolerance = args.tolerance
     step = max(2.0, tolerance / 2.0)
+    preprocess = args.preprocess
     seeds = [args.seed + index for index in range(args.seeds)]
     plans = [generate_plan(seed) for seed in seeds]
 
+    print(f"preprocess={preprocess}")
     _report_layouts(plans, seeds)
 
     otsu = _otsu_threshold(plans[0])
@@ -456,22 +472,24 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     print("\n### Barrido de rotación (0..45°, paso 5°)")
     per_angle, rotation_cases = _sweep_rotation(
-        plans, ROTATION_ANGLES, tolerance, step, settings
+        plans, ROTATION_ANGLES, tolerance, step, settings, preprocess
     )
     print(_render_rotation_table(per_angle))
 
     print("\n### Barrido de cizalla (0..0.3, 6 pasos)")
-    per_shear = _sweep_shear(plans, SHEAR_VALUES, tolerance, step, settings)
+    per_shear = _sweep_shear(plans, SHEAR_VALUES, tolerance, step, settings, preprocess)
     print(_render_shear_table(per_shear))
 
     print("\n### Barrido de iluminación (gradiente lineal)")
     illumination_rows = _sweep_illumination(
-        plans, ILLUMINATION_INTENSITIES, otsu, tolerance, step, settings
+        plans, ILLUMINATION_INTENSITIES, otsu, tolerance, step, settings, preprocess
     )
     print(_render_illumination_table(illumination_rows))
 
     print("\n### Sombra de mano (banda oscura localizada)")
-    shadow_rows = _sweep_shadow(plans, SHADOW_STRENGTHS, tolerance, step, settings)
+    shadow_rows = _sweep_shadow(
+        plans, SHADOW_STRENGTHS, tolerance, step, settings, preprocess
+    )
     print(_render_shadow_table(shadow_rows))
 
     _build_rotation_visuals(rotation_cases, per_angle, output_dir)
