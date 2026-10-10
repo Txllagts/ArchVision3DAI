@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import {
   FURNITURE_CATALOG,
@@ -181,10 +181,13 @@ export function EditorShell({
   const initialize = useEditorStore((state) => state.initialize);
   const viewMode = useEditorStore((state) => state.viewMode);
   const { saveNow } = useAutosave();
+  const initializedProjectId = useRef<string | null>(null);
 
   useEditorShortcuts({ onSave: () => void saveNow() });
 
   useEffect(() => {
+    if (initializedProjectId.current === project.id) return;
+    initializedProjectId.current = project.id;
     initialize({
       projectId: project.id,
       projectName: project.name,

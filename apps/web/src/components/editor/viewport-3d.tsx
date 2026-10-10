@@ -1246,17 +1246,19 @@ function SceneContent() {
         </group>
       ) : null}
 
-      {scene.floors.map((floor) => (
-        <FloorContent
-          key={floor.id}
-          floor={floor}
-          scene={scene}
-          selection={selection}
-          hoveredId={hoveredId}
-          handlers={handlers}
-          transformPreview={transformPreview}
-        />
-      ))}
+      {scene.floors
+        .filter((floor) => !activeFloorId || floor.id === activeFloorId)
+        .map((floor) => (
+          <FloorContent
+            key={floor.id}
+            floor={floor}
+            scene={scene}
+            selection={selection}
+            hoveredId={hoveredId}
+            handlers={handlers}
+            transformPreview={transformPreview}
+          />
+        ))}
 
       {tool === "wall" && drawStart && cursor ? (
         <WallPreview

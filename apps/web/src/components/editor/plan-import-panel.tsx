@@ -26,6 +26,21 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+function getImageDimensions(url: string): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => {
+      if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+        resolve({ width: img.naturalWidth, height: img.naturalHeight });
+      } else {
+        reject(new Error("Dimensiones invalidas"));
+      }
+    };
+    img.onerror = () => reject(new Error("Error al cargar la imagen"));
+    img.src = url;
+  });
+}
+
 export function PlanImportPanel() {
   const open = useEditorStore((state) => state.planPanelOpen);
   const setOpen = useEditorStore((state) => state.setPlanPanelOpen);
@@ -213,8 +228,19 @@ export function PlanImportPanel() {
                   <button
                     type="button"
                     className="flex-1 truncate text-left"
-                    onClick={() => {
-                      if (!file.width || !file.height) return;
+                    onClick={async () => {
+                      let width = file.width;
+                      let height = file.height;
+                      if (!width || !height) {
+                        try {
+                          const dims = await getImageDimensions(file.url);
+                          width = dims.width;
+                          height = dims.height;
+                        } catch {
+                          setMessage({ kind: "error", text: "No se pudieron leer las dimensiones del plano" });
+                          return;
+                        }
+                      }
                       dispatch({
                         type: "SET_UNDERLAY",
                         underlay: {
@@ -224,8 +250,8 @@ export function PlanImportPanel() {
                           rotationDeg: underlay?.rotationDeg ?? 0,
                           opacity: underlay?.opacity ?? 0.55,
                           visible: true,
-                          width: file.width,
-                          height: file.height,
+                          width,
+                          height,
                         },
                       });
                     }}

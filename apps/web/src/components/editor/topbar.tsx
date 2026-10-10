@@ -137,11 +137,16 @@ export function EditorTopBar({ onSave }: { onSave: () => void }) {
       <div className="flex items-center gap-1">
         <Layers className="size-4 text-ink-subtle" aria-hidden />
         <select
-          value={activeFloorId ?? ""}
-          onChange={(event) => setActiveFloor(event.target.value)}
+          value={activeFloorId ?? "all"}
+          onChange={(event) => {
+            const val = event.target.value;
+            setActiveFloor(val === "all" ? null : val);
+          }}
           aria-label="Nivel activo"
-          className="h-8 rounded-md border border-line bg-surface px-2 text-xs text-ink"
+          title="Elige 'Vista completa' para ver la construcción entera en 3D, o un piso específico para aislarlo"
+          className="h-8 rounded-md border border-line bg-surface px-2 text-xs font-medium text-ink"
         >
+          <option value="all">Vista completa</option>
           {scene.floors.map((floor) => (
             <option key={floor.id} value={floor.id}>
               {floor.name}

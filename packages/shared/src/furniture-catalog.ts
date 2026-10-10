@@ -24,7 +24,7 @@ export const FURNITURE_CATEGORY_LABELS: Record<FurnitureCategory, string> = {
   kitchen: "Cocina",
   dining: "Comedor",
   bedroom: "Dormitorio",
-  bathroom: "Bano",
+  bathroom: "Baño",
   office: "Oficina",
   outdoor: "Exterior",
   lighting: "Iluminacion",
@@ -68,7 +68,7 @@ export const FURNITURE_CATALOG: FurnitureCatalogItem[] = [
 
   { id: "toilet", name: "Sanitario", category: "bathroom", size: { x: 0.4, y: 0.8, z: 0.65 }, color: "#e8ecef", wallMounted: true, modelUrl: "/models/furniture/toilet.glb" },
   { id: "sink", name: "Lavamanos", category: "bathroom", size: { x: 0.6, y: 0.85, z: 0.45 }, color: "#e8ecef", wallMounted: true, modelUrl: "/models/furniture/sink.glb" },
-  { id: "shower", name: "Ducha", category: "bathroom", size: { x: 0.9, y: 2.0, z: 0.9 }, color: "#b7cdd6", wallMounted: true, modelUrl: "/models/furniture/shower.glb" },
+  { id: "shower", name: "Ducha", category: "bathroom", size: { x: 0.9, y: 2.0, z: 0.9 }, color: "#b7cdd6", wallMounted: true, modelUrl: "/models/furniture/ducha_low.glb" },
 
   { id: "desk", name: "Escritorio", category: "office", size: { x: 1.4, y: 0.75, z: 0.7 }, color: "#8a6a45", wallMounted: true, modelUrl: "/models/furniture/desk.glb" },
   { id: "office-chair", name: "Silla de oficina", category: "office", size: { x: 0.6, y: 1.1, z: 0.6 }, color: "#33383f", modelUrl: "/models/furniture/silla1.glb" },

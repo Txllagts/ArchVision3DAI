@@ -185,7 +185,7 @@ interface EditorState {
 
   setTool: (tool: ToolId) => void;
   setViewMode: (mode: ViewMode) => void;
-  setActiveFloor: (floorId: string) => void;
+  setActiveFloor: (floorId: string | null) => void;
   setFurnitureCatalogId: (catalogId: string) => void;
   setActiveMaterialId: (materialId: string | null) => void;
   setMaterialsOpen: (open: boolean) => void;

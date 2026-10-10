@@ -166,7 +166,7 @@ async function main() {
 
   console.log("Semilla completada.");
   console.log(`  Usuario demo: ${DEMO_EMAIL}`);
-  console.log(`  Contrasena:   ${DEMO_PASSWORD}`);
+  console.log(`  Contraseña:   ${DEMO_PASSWORD}`);
   console.log(`  Workspace:    ${workspace.name}`);
   console.log(`  Proyectos:    ${1 + extras.length}`);
 }

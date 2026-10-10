@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { brand } from "@archvision/config";
 import { Logo } from "@/components/brand/logo";
+import { LegalNotice } from "@/components/legal/terms-modal";
 
 export default function AuthLayout({
   children,
@@ -15,10 +15,9 @@ export default function AuthLayout({
           <Logo />
         </Link>
         {children}
-        <p className="mt-6 text-center text-[11px] leading-relaxed text-ink-subtle">
-          {brand.company}. Al continuar aceptas el tratamiento de tus datos
-          conforme a la politica de privacidad.
-        </p>
+        <div className="mt-6 text-center">
+          <LegalNotice />
+        </div>
       </div>
     </div>
   );

@@ -516,10 +516,72 @@ export function Inspector() {
             <TextRow label="Tipo" value="Escalera" />
             <TextRow label="Nombre" value={stair.name} />
             <TextRow label="Forma" value={stair.kind} />
+            <TextRow
+              label="Posición"
+              value={`x ${stair.position.x.toFixed(2)} · y ${stair.position.y.toFixed(2)}`}
+            />
+            <TextRow
+              label="Orientación"
+              value={`${Math.round(((stair.rotationY * 180) / Math.PI) % 360)}°`}
+            />
+            <TextRow label="Ancho" value={formatLength(stair.width, units)} />
             <TextRow label="Altura total" value={formatLength(stair.totalRise, units)} />
             <TextRow label="Escalones" value={String(stair.steps)} />
             <TextRow label="Huella" value={formatLength(stair.tread, units)} />
             <TextRow label="Contrahuella" value={formatLength(stair.riser, units)} />
+
+            <div className="mt-3 flex flex-col gap-1.5 border-t border-line/60 pt-3">
+              <span className="text-[11px] font-medium text-ink-muted">
+                Desplazamiento lateral
+              </span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const step = 0.5;
+                    const cos = Math.cos(stair.rotationY);
+                    const sin = Math.sin(stair.rotationY);
+                    dispatch({
+                      type: "TRANSFORM_OBJECTS",
+                      ids: [stair.id],
+                      translate: { x: -step * cos, y: 0, z: step * sin },
+                    });
+                  }}
+                  className="rounded border border-line bg-surface/60 px-2 py-1 text-[11px] text-ink hover:bg-surface-hover hover:border-accent"
+                >
+                  ← Mover Izq (0.5m)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const step = 0.5;
+                    const cos = Math.cos(stair.rotationY);
+                    const sin = Math.sin(stair.rotationY);
+                    dispatch({
+                      type: "TRANSFORM_OBJECTS",
+                      ids: [stair.id],
+                      translate: { x: step * cos, y: 0, z: -step * sin },
+                    });
+                  }}
+                  className="rounded border border-line bg-surface/60 px-2 py-1 text-[11px] text-ink hover:bg-surface-hover hover:border-accent"
+                >
+                  Mover Der (0.5m) →
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  dispatch({
+                    type: "TRANSFORM_OBJECTS",
+                    ids: [stair.id],
+                    rotateY: Math.PI / 2,
+                  });
+                }}
+                className="mt-1 rounded border border-line bg-surface/60 px-2 py-1 text-[11px] text-ink hover:bg-surface-hover hover:border-accent"
+              >
+                ↻ Girar 90°
+              </button>
+            </div>
           </>
         ) : null}
 

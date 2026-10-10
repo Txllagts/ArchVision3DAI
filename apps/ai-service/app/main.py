@@ -131,11 +131,26 @@ async def lifespan(app: FastAPI):
 
 
 def _new_rembg_session(model_path: Path):
+    import ctypes
+    import glob
     import os
+    import sys
 
     import numpy as np
-    import onnxruntime as ort
     from rembg.sessions.u2net_custom import U2netCustomSession
+
+    # Preload pip-installed nvidia-cudnn shared libraries so ONNX Runtime can find them.
+    cudnn_dir = os.path.join(
+        sys.prefix, "lib", f"python{sys.version_info.major}.{sys.version_info.minor}", "site-packages", "nvidia", "cudnn", "lib"
+    )
+    if os.path.exists(cudnn_dir):
+        for lib in sorted(glob.glob(os.path.join(cudnn_dir, "*.so*"))):
+            try:
+                ctypes.CDLL(lib, mode=ctypes.RTLD_GLOBAL)
+            except Exception:
+                pass
+
+    import onnxruntime as ort
 
     class RmbgOnnxSession(U2netCustomSession):
         def __init__(self, model_name, session_options, *args, **kwargs):
