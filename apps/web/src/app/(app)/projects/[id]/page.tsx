@@ -11,6 +11,7 @@ import { computeSceneMetrics, formatArea, formatLength } from "@archvision/share
 import { Badge, Panel, PanelHeader } from "@/components/ui/surface";
 import { Button } from "@/components/ui/button";
 import { ProjectVersions } from "@/components/projects/project-versions";
+import { ImageTo3DGenerator } from "@/components/projects/image-to-3d-generator";
 import { requirePageUser } from "@/lib/auth/guards";
 import { getProject } from "@/lib/projects/service";
 import { listVersions, loadScene } from "@/lib/projects/scene-service";
@@ -44,7 +45,7 @@ export default async function ProjectDetailPage({
     ["Ubicacion", project.location ?? "sin definir"],
     ["Altura de piso", formatLength(project.floorHeight, unit)],
     ["Plantas", String(project.floorsCount)],
-    ["Tamano", formatBytes(project.sizeBytes)],
+    ["Tamaño", formatBytes(project.sizeBytes)],
     ["Revision de escena", sceneResult ? `#${sceneResult.revision}` : "-"],
     ["Actualizado", formatRelativeDate(project.updatedAt)],
   ] as const;
@@ -160,6 +161,8 @@ export default async function ProjectDetailPage({
               </ul>
             ) : null}
           </Panel>
+
+          <ImageTo3DGenerator projectId={project.id} />
         </div>
 
         <div className="space-y-6">
@@ -171,7 +174,7 @@ export default async function ProjectDetailPage({
               <li>Fase 2: editor 3D con paredes, puertas y ventanas.</li>
               <li>Fase 3: editor 2D sincronizado.</li>
               <li>Fase 5: importacion de planos.</li>
-              <li>Fase 7: reconstruccion desde fotografias.</li>
+              <li>Generacion de modelos desde imagen disponible con TripoSR.</li>
             </ul>
           </Panel>
         </div>

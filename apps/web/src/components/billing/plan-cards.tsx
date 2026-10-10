@@ -48,28 +48,41 @@ export function PlanCards({
 
   return (
     <div>
-      <div className="flex items-center justify-center gap-1 pb-6">
-        {(["month", "year"] as const).map((option) => (
-          <button
-            key={option}
-            type="button"
-            onClick={() => setInterval(option)}
-            aria-pressed={interval === option}
+      <div className="flex items-center justify-center gap-3 pb-8">
+        <div className="relative grid grid-cols-2 rounded-full border border-line bg-surface p-1">
+          <span
+            aria-hidden
             className={cn(
-              "rounded-full px-3 py-1 text-xs transition-colors",
-              interval === option
-                ? "bg-accent text-accent-ink"
-                : "text-ink-muted hover:text-ink",
+              "absolute inset-y-1 left-1 w-[calc(50%-4px)] rounded-full bg-accent-fill transition-transform duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
+              interval === "year" && "translate-x-full",
             )}
-          >
-            {option === "month" ? "Mensual" : "Anual"}
-          </button>
-        ))}
-        {interval === "year" ? (
-          <span className="ml-2 text-[11px] text-accent">
-            Dos meses gratis en cada plan
-          </span>
-        ) : null}
+          />
+          {(["month", "year"] as const).map((option) => (
+            <button
+              key={option}
+              type="button"
+              onClick={() => setInterval(option)}
+              aria-pressed={interval === option}
+              className={cn(
+                "relative z-10 w-24 rounded-full py-1.5 text-xs font-medium transition-colors duration-300",
+                interval === option
+                  ? "text-accent-fill-ink"
+                  : "text-ink-muted hover:text-ink",
+              )}
+            >
+              {option === "month" ? "Mensual" : "Anual"}
+            </button>
+          ))}
+        </div>
+        <span
+          className={cn(
+            "text-xs text-accent transition-[opacity,transform] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)]",
+            interval === "year" ? "opacity-100" : "-translate-x-2 opacity-0",
+          )}
+          aria-hidden={interval !== "year"}
+        >
+          Dos meses gratis en cada plan
+        </span>
       </div>
 
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
@@ -86,7 +99,10 @@ export function PlanCards({
               key={planId}
               className={cn(
                 "flex h-full flex-col rounded-panel border bg-surface p-5",
-                pricing.featured ? "border-accent shadow-lg" : "border-line",
+                "transition-[transform,border-color,box-shadow] duration-300 ease-[cubic-bezier(0.16,1,0.3,1)] hover:-translate-y-1 motion-reduce:hover:translate-y-0",
+                pricing.featured
+                  ? "border-accent shadow-[0_16px_40px_-20px_rgb(46_167_242/0.45)] hover:shadow-[0_24px_56px_-20px_rgb(46_167_242/0.55)]"
+                  : "border-line hover:border-line-strong",
               )}
             >
               <header>
@@ -111,7 +127,7 @@ export function PlanCards({
                   {pricing.contactOnly ? (
                     <p className="text-lg font-semibold text-ink">A convenir</p>
                   ) : (
-                    <>
+                    <div key={interval} className="av-swap">
                       <p className="text-2xl font-semibold tracking-tight text-ink">
                         {formatMoney(price?.amountCents ?? 0, pricing.currency)}
                       </p>
@@ -119,7 +135,7 @@ export function PlanCards({
                         {price?.amountCents === 0
                           ? "Para siempre"
                           : interval === "year"
-                            ? "al ano, IVA incluido"
+                            ? "al año, IVA incluido"
                             : "al mes, IVA incluido"}
                       </p>
                       {saving > 0 ? (
@@ -127,7 +143,7 @@ export function PlanCards({
                           Ahorras {formatMoney(saving, pricing.currency)}
                         </p>
                       ) : null}
-                    </>
+                    </div>
                   )}
                 </div>
               </header>

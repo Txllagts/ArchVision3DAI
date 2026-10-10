@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, type FormEvent } from "react";
+import { useCallback, useState, type FormEvent } from "react";
 import { Camera, FileImage, PencilRuler, Square } from "lucide-react";
 import {
   PROJECT_TYPES,
@@ -15,6 +15,7 @@ import { createProjectSchema } from "@archvision/validation";
 import { Button } from "@/components/ui/button";
 import { SelectField, TextAreaField, TextField } from "@/components/ui/field";
 import { Badge, Panel } from "@/components/ui/surface";
+import { AssetDropzone } from "@/components/ui/asset-dropzone";
 import { cn } from "@/lib/utils";
 
 /**
@@ -49,16 +50,14 @@ const METHODS: MethodOption[] = [
   {
     id: "photos",
     title: "Desde fotografias",
-    description: "Sube fachadas e interiores y deja que la IA proponga la geometria.",
+    description: "Crea el proyecto y genera un modelo inicial desde una imagen con TripoSR.",
     icon: Camera,
-    phase: "Fase 7",
   },
   {
     id: "floorplan",
     title: "Desde plano",
-    description: "Importa un PDF o imagen y conviertelo en estructura editable.",
+    description: "Importa un PDF, imagen o modelo 3D (GLB/GLTF) y conviertelo en estructura editable.",
     icon: FileImage,
-    phase: "Fase 5",
   },
 ];
 
@@ -69,6 +68,12 @@ export function NewProjectForm() {
   const [formError, setFormError] = useState<string | null>(null);
   const [quotaReached, setQuotaReached] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importProgress, setImportProgress] = useState<"uploading" | "processing" | null>(null);
+
+  const handleFileSelect = useCallback((file: File) => {
+    setImportFile(file);
+  }, []);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -93,27 +98,65 @@ export function NewProjectForm() {
     }
 
     setLoading(true);
-    const response = await fetch("/api/projects", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(parsed.data),
-    });
-    setLoading(false);
 
-    if (!response.ok) {
-      const payload = (await response.json()) as {
-        error?: { code?: string; message?: string };
-      };
-      setFormError(payload.error?.message ?? "No fue posible crear el proyecto");
-      // Un limite alcanzado no es un error del usuario: es la senal de que el
-      // plan se le queda corto, y merece un camino en vez de un callejon.
-      setQuotaReached(payload.error?.code === "QUOTA_EXCEEDED");
-      return;
+    try {
+      let projectId: string;
+
+      if (importFile) {
+        // Create project with file upload (multipart/form-data)
+        const uploadFormData = new FormData();
+        Object.entries(parsed.data).forEach(([key, value]) => {
+          if (value !== undefined && value !== null) {
+            uploadFormData.append(key, String(value));
+          }
+        });
+        uploadFormData.append("file", importFile);
+
+        setImportProgress("uploading");
+        const response = await fetch("/api/projects", {
+          method: "POST",
+          body: uploadFormData,
+        });
+        setImportProgress("processing");
+
+        if (!response.ok) {
+          const payload = (await response.json()) as {
+            error?: { code?: string; message?: string };
+          };
+          throw new Error(payload.error?.message ?? "No fue posible crear el proyecto");
+        }
+
+        const payload = (await response.json()) as { data: { id: string } };
+        projectId = payload.data.id;
+      } else {
+        // Standard JSON project creation
+        const response = await fetch("/api/projects", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(parsed.data),
+        });
+
+        if (!response.ok) {
+          const payload = (await response.json()) as {
+            error?: { code?: string; message?: string };
+          };
+          throw new Error(payload.error?.message ?? "No fue posible crear el proyecto");
+        }
+
+        const payload = (await response.json()) as { data: { id: string } };
+        projectId = payload.data.id;
+      }
+
+      router.push(`/projects/${projectId}`);
+      router.refresh();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "No fue posible crear el proyecto";
+      setFormError(message);
+      setQuotaReached(message.includes("QUOTA_EXCEEDED") || message.includes("plan"));
+    } finally {
+      setLoading(false);
+      setImportProgress(null);
     }
-
-    const payload = (await response.json()) as { data: { id: string } };
-    router.push(`/projects/${payload.data.id}`);
-    router.refresh();
   }
 
   return (
@@ -129,7 +172,10 @@ export function NewProjectForm() {
                 <button
                   key={option.id}
                   type="button"
-                  onClick={() => setMethod(option.id)}
+                  onClick={() => {
+                    setMethod(option.id);
+                    setImportFile(null);
+                  }}
                   aria-pressed={selected}
                   className={cn(
                     "rounded-md border p-4 text-left transition-colors",
@@ -143,7 +189,6 @@ export function NewProjectForm() {
                       className={cn("size-4", selected ? "text-accent" : "text-ink-muted")}
                       aria-hidden
                     />
-                    {option.phase ? <Badge tone="warn">{option.phase}</Badge> : null}
                   </div>
                   <p className="mt-3 text-sm font-medium text-ink">{option.title}</p>
                   <p className="mt-1 text-xs leading-relaxed text-ink-muted">
@@ -153,13 +198,47 @@ export function NewProjectForm() {
               );
             })}
           </div>
-          {METHODS.find((m) => m.id === method)?.phase ? (
-            <p className="mt-4 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-xs text-warn">
-              El analisis automatico llega en {METHODS.find((m) => m.id === method)?.phase}.
-              El proyecto se creara en estado borrador y podras dibujar mientras tanto.
-            </p>
-          ) : null}
         </Panel>
+
+        {method === "floorplan" && (
+          <Panel className="space-y-4 p-5">
+            <h2 className="text-sm font-semibold text-ink">Archivo a importar</h2>
+            <p className="text-xs text-ink-muted">
+              Arrastra un plano (PNG, JPG, WebP, PDF) o un modelo 3D (GLB, GLTF).
+              Los modelos 3D se cargaran directamente en el visor; los planos requeriran calibracion.
+            </p>
+            <AssetDropzone
+              category="all"
+              onFileSelect={handleFileSelect}
+              busy={loading || importProgress !== null}
+              disabled={loading || importProgress !== null}
+              inputId="project-import-file"
+            />
+            {importFile && (
+              <div className="flex items-center justify-between rounded border border-line bg-surface px-3 py-2 text-sm">
+                <span className="truncate max-w-[200px]">{importFile.name}</span>
+                <span className="ml-2 text-xs text-ink-muted">
+                  {(importFile.size / 1024 / 1024).toFixed(2)} MB
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setImportFile(null)}
+                  disabled={loading || importProgress !== null}
+                  className="ml-3 text-ink-subtle hover:text-danger"
+                  aria-label="Eliminar archivo"
+                >
+                  x
+                </button>
+              </div>
+            )}
+            {importProgress === "uploading" && (
+              <p className="text-xs text-ink-muted">Subiendo archivo...</p>
+            )}
+            {importProgress === "processing" && (
+              <p className="text-xs text-ink-muted">Procesando y creando proyecto...</p>
+            )}
+          </Panel>
+        )}
 
         <Panel className="space-y-4 p-5">
           <h2 className="text-sm font-semibold text-ink">Informacion basica</h2>

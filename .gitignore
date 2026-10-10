@@ -10,6 +10,7 @@ coverage/
 .env
 .env.local
 .env.*.local
+.env.example
 
 # Database (dev SQLite)
 *.db
@@ -24,10 +25,7 @@ packages/database/prisma/dev.db*
 __pycache__/
 *.pyc
 .venv/
-apps/ai-service/.venv/
-apps/ai-service/.env
-apps/ai-service/weights/
-*.pt
+apps/ai-service/models/*.onnx*
 
 # OS / editores
 .DS_Store
@@ -35,3 +33,11 @@ Thumbs.db
 .idea/
 .vscode/*
 !.vscode/extensions.json
+
+# IA AGENTS 
+
+# opencode - Diego Mojica
+AGENTS.md
+
+# DSapi
+.api

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { RotateCcw, RotateCw } from "lucide-react";
+import { RotateCcw, RotateCw, Trash2 } from "lucide-react";
 import type { SceneDocument, UnitSystem } from "@archvision/types";
 import {
   distance2,
@@ -236,6 +236,7 @@ export function Inspector() {
   const units = useEditorStore((state) => state.units);
   const selection = useEditorStore((state) => state.selection);
   const dispatch = useEditorStore((state) => state.dispatch);
+  const clearSelection = useEditorStore((state) => state.clearSelection);
   const [rotationDegrees, setRotationDegrees] = useState("90");
   const [rotationPreferenceLoaded, setRotationPreferenceLoaded] = useState(false);
 
@@ -261,6 +262,11 @@ export function Inspector() {
     );
   }
 
+  const handleDeleteSelection = () => {
+    dispatch({ type: "DELETE_OBJECTS", ids: selection });
+    clearSelection();
+  };
+
   if (selection.length > 1) {
     return (
       <div className="border-t border-line">
@@ -270,9 +276,19 @@ export function Inspector() {
           degrees={rotationDegrees}
           onDegreesChange={setRotationDegrees}
         />
-        <p className="px-3 py-4 text-[11px] text-ink-muted">
-          {selection.length} objetos seleccionados. Usa Supr para eliminarlos.
-        </p>
+        <div className="flex flex-col gap-2 p-3">
+          <p className="text-[11px] text-ink-muted">
+            {selection.length} objetos seleccionados.
+          </p>
+          <button
+            type="button"
+            onClick={handleDeleteSelection}
+            className="flex items-center justify-center gap-1.5 rounded border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs font-medium text-danger hover:bg-danger/20"
+          >
+            <Trash2 className="size-3.5" aria-hidden />
+            Eliminar seleccionados
+          </button>
+        </div>
       </div>
     );
   }
@@ -286,6 +302,7 @@ export function Inspector() {
   const slab = scene.slabs.find((item) => item.id === id);
   const room = scene.rooms.find((item) => item.id === id);
   const furniture = scene.furniture.find((item) => item.id === id);
+  const importedModel = scene.importedModels.find((item) => item.id === id);
 
   return (
     <div className="flex max-h-[45%] flex-col border-t border-line">
@@ -499,10 +516,72 @@ export function Inspector() {
             <TextRow label="Tipo" value="Escalera" />
             <TextRow label="Nombre" value={stair.name} />
             <TextRow label="Forma" value={stair.kind} />
+            <TextRow
+              label="Posición"
+              value={`x ${stair.position.x.toFixed(2)} · y ${stair.position.y.toFixed(2)}`}
+            />
+            <TextRow
+              label="Orientación"
+              value={`${Math.round(((stair.rotationY * 180) / Math.PI) % 360)}°`}
+            />
+            <TextRow label="Ancho" value={formatLength(stair.width, units)} />
             <TextRow label="Altura total" value={formatLength(stair.totalRise, units)} />
             <TextRow label="Escalones" value={String(stair.steps)} />
             <TextRow label="Huella" value={formatLength(stair.tread, units)} />
             <TextRow label="Contrahuella" value={formatLength(stair.riser, units)} />
+
+            <div className="mt-3 flex flex-col gap-1.5 border-t border-line/60 pt-3">
+              <span className="text-[11px] font-medium text-ink-muted">
+                Desplazamiento lateral
+              </span>
+              <div className="grid grid-cols-2 gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const step = 0.5;
+                    const cos = Math.cos(stair.rotationY);
+                    const sin = Math.sin(stair.rotationY);
+                    dispatch({
+                      type: "TRANSFORM_OBJECTS",
+                      ids: [stair.id],
+                      translate: { x: -step * cos, y: 0, z: step * sin },
+                    });
+                  }}
+                  className="rounded border border-line bg-surface/60 px-2 py-1 text-[11px] text-ink hover:bg-surface-hover hover:border-accent"
+                >
+                  ← Mover Izq (0.5m)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const step = 0.5;
+                    const cos = Math.cos(stair.rotationY);
+                    const sin = Math.sin(stair.rotationY);
+                    dispatch({
+                      type: "TRANSFORM_OBJECTS",
+                      ids: [stair.id],
+                      translate: { x: step * cos, y: 0, z: -step * sin },
+                    });
+                  }}
+                  className="rounded border border-line bg-surface/60 px-2 py-1 text-[11px] text-ink hover:bg-surface-hover hover:border-accent"
+                >
+                  Mover Der (0.5m) →
+                </button>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  dispatch({
+                    type: "TRANSFORM_OBJECTS",
+                    ids: [stair.id],
+                    rotateY: Math.PI / 2,
+                  });
+                }}
+                className="mt-1 rounded border border-line bg-surface/60 px-2 py-1 text-[11px] text-ink hover:bg-surface-hover hover:border-accent"
+              >
+                ↻ Girar 90°
+              </button>
+            </div>
           </>
         ) : null}
 
@@ -585,6 +664,32 @@ export function Inspector() {
             <TextRow label="Catalogo" value={furniture.catalogId} />
           </>
         ) : null}
+
+        {importedModel ? (
+          <>
+            <TextRow label="Tipo" value="Modelo 3D importado" />
+            <TextRow label="Nombre" value={importedModel.name} />
+            <TextRow
+              label="Posicion"
+              value={`${importedModel.position.x.toFixed(2)} , ${importedModel.position.z.toFixed(2)}`}
+            />
+            <TextRow
+              label="Escala"
+              value={`${importedModel.scale.x.toFixed(2)} × ${importedModel.scale.y.toFixed(2)} × ${importedModel.scale.z.toFixed(2)}`}
+            />
+          </>
+        ) : null}
+
+        <div className="border-t border-line p-3">
+          <button
+            type="button"
+            onClick={handleDeleteSelection}
+            className="flex w-full items-center justify-center gap-1.5 rounded border border-danger/30 bg-danger/10 px-3 py-1.5 text-xs font-medium text-danger hover:bg-danger/20"
+          >
+            <Trash2 className="size-3.5" aria-hidden />
+            Eliminar objeto
+          </button>
+        </div>
       </div>
     </div>
   );

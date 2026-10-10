@@ -11,3 +11,5 @@ export * from "./rooms";
 export * from "./furniture-catalog";
 export * from "./material-catalog";
 export * from "./scene-migrations";
+export * from "./floorplan-import";
+export * from "./glb-bounds";

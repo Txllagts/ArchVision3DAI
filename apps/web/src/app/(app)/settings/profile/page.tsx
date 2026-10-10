@@ -34,8 +34,8 @@ export default async function ProfilePage() {
       </Panel>
 
       <p className="text-[11px] text-ink-subtle">
-        La edicion de perfil, el cambio de contrasena y la verificacion de
-        correo se habilitan junto con el modulo de cuentas ampliado.
+        La edición de perfil, el cambio de contraseña y la verificación de
+        correo se habilitan junto con el módulo de cuentas ampliado.
       </p>
     </div>
   );

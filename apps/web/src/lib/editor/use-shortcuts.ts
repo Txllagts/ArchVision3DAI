@@ -28,6 +28,13 @@ export function useEditorShortcuts(options: { onSave: () => void }) {
     const handler = (event: KeyboardEvent) => {
       const store = useEditorStore.getState();
 
+      // Con el dialogo de exportacion abierto el teclado le pertenece a el:
+      // solo Escape (que ademas lo cierra) debe reaccionar aqui.
+      if (store.exportOpen) {
+        if (event.key === "Escape") store.setExportOpen(false);
+        return;
+      }
+
       if (event.key === "Escape") {
         store.setPaletteOpen(false);
         store.clearSelection();
@@ -42,6 +49,13 @@ export function useEditorShortcuts(options: { onSave: () => void }) {
         store.setPaletteOpen(!store.paletteOpen);
         return;
       }
+
+      if (ctrl && event.key.toLowerCase() === "e") {
+        event.preventDefault();
+        store.setExportOpen(true);
+        return;
+      }
+
 
       if (ctrl && event.key.toLowerCase() === "s") {
         event.preventDefault();

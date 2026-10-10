@@ -45,7 +45,7 @@ const ACCEPTED_BY_KIND: Record<FileKind, readonly SniffResult["mime"][]> = {
   floorplan: ["image/png", "image/jpeg", "image/webp", "application/pdf"],
   photo: ["image/png", "image/jpeg", "image/webp"],
   texture: ["image/png", "image/jpeg", "image/webp"],
-  model: [],
+  model: ["model/gltf-binary", "model/gltf+json", "application/octet-stream"],
   render: ["image/png", "image/jpeg"],
 };
 
@@ -117,9 +117,31 @@ export async function saveProjectFile(
     declaredMime: string;
     data: Uint8Array;
     plan: string;
+    /** Clave de idempotencia del cliente: un reintento devuelve el archivo ya subido. */
+    clientKey?: string;
   },
 ): Promise<ProjectFileSummary | null> {
   if (!(await assertAccess(userId, projectId))) return null;
+
+  // Reintento de la misma subida: si la primera llego al servidor pero la
+  // respuesta se perdio, el cliente reenvia la misma clientKey y aqui se
+  // devuelve el archivo existente en lugar de duplicar bytes.
+  const clientKey =
+    input.clientKey && input.clientKey.length > 0 && input.clientKey.length <= 64
+      ? input.clientKey
+      : undefined;
+  if (clientKey) {
+    const replay = await prisma.projectFile.findFirst({
+      where: {
+        projectId,
+        clientKey,
+        storageKey: { not: "" },
+        createdAt: { gte: new Date(Date.now() - 10 * 60_000) },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+    if (replay) return toSummary(replay);
+  }
 
   const limits = planLimits(input.plan);
 
@@ -144,7 +166,7 @@ export async function saveProjectFile(
   const detected = sniff(input.data);
   if (!detected) {
     throw new FileValidationError(
-      "Formato no reconocido. Se aceptan PNG, JPG, WebP y PDF.",
+      "Formato no reconocido. Se aceptan PNG, JPG, WebP, PDF, GLB y GLTF.",
     );
   }
 
@@ -157,10 +179,19 @@ export async function saveProjectFile(
 
   // El tipo declarado debe coincidir con el real: si no, o hay un error del
   // cliente o alguien esta intentando colar otra cosa.
-  if (input.declaredMime && input.declaredMime !== detected.mime) {
-    throw new FileValidationError(
-      "El contenido del archivo no corresponde con su tipo declarado.",
-    );
+  // Para modelos 3D (GLB/GLTF) permitimos MIME genérico application/octet-stream
+  // que los navegadores suelen enviar al re-subir archivos descargados.
+  const declaredMime = input.declaredMime;
+  const isModelKind = input.kind === "model";
+  const isOctetStream = declaredMime === "application/octet-stream";
+  const isValidModelMime = detected.mime === "model/gltf-binary" || detected.mime === "model/gltf+json";
+
+  if (declaredMime && declaredMime !== detected.mime) {
+    if (!(isModelKind && isOctetStream && isValidModelMime)) {
+      throw new FileValidationError(
+        "El contenido del archivo no corresponde con su tipo declarado.",
+      );
+    }
   }
 
   const created = await prisma.projectFile.create({
@@ -177,6 +208,7 @@ export async function saveProjectFile(
       width: detected.width,
       height: detected.height,
       checksum: checksumOf(input.data),
+      clientKey: clientKey ?? null,
     },
   });
 

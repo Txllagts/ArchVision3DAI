@@ -1,9 +1,9 @@
 "use client";
 
-import { useMemo } from "react";
-import { Edges } from "@react-three/drei";
+import { Component, Suspense, useMemo, type ErrorInfo, type ReactNode } from "react";
+import { Edges, useGLTF } from "@react-three/drei";
 import type { ThreeEvent } from "@react-three/fiber";
-import { DoubleSide } from "three";
+import {Box3, DoubleSide, Group, Mesh, Vector3 } from "three";
 import {
   collectWallOpenings,
   columnGeometryKey,
@@ -35,6 +35,7 @@ import type {
   Column,
   Door,
   FurnitureInstance,
+  ImportedModel,
   Roof,
   Room,
   SceneDocument,
@@ -61,13 +62,17 @@ interface PickHandlers {
   onHover: (id: string | null) => void;
 }
 
-function pickProps(id: string, handlers: PickHandlers) {
+function pickProps(
+  id: string,
+  handlers: PickHandlers,
+  extraUserData?: Record<string, unknown>,
+) {
   return {
     // El identificador viaja tambien en la malla porque soltar un material
     // desde la biblioteca es un evento de arrastre del DOM, ajeno al sistema
     // de eventos de React Three Fiber: alli hay que lanzar el rayo a mano y
     // deducir a que entidad pertenece el objeto tocado.
-    userData: { entityId: id },
+    userData: { entityId: id, ...extraUserData },
     onPointerDown: (event: ThreeEvent<PointerEvent>) => {
       if (event.nativeEvent.button !== 0) return;
       event.stopPropagation();
@@ -562,6 +567,51 @@ export function ColumnObject({
  * Hasta que existan modelos GLB (fase 4) se representa con la caja de las
  * dimensiones reales del catalogo, suficiente para estudiar la distribucion.
  */
+function FurnitureModel({
+  url,
+  size,
+  scale,
+}: {
+  url: string;
+  size: { x: number; y: number; z: number };
+  scale: { x: number; y: number; z: number };
+}) {
+  const { scene } = useGLTF(url);
+
+  const holder = useMemo(() => {
+    const root = scene.clone(true);
+    root.traverse((o) => {
+      if ((o as Mesh).isMesh) {
+        o.castShadow = true;
+        o.receiveShadow = true;
+      }
+    });
+    const box = new Box3().setFromObject(root);
+    const dim = box.getSize(new Vector3());
+    const c = box.getCenter(new Vector3());
+    // Centra en X/Z y apoya la base en y = 0.
+    root.position.set(-c.x, -box.min.y, -c.z);
+    const g = new Group();
+    g.add(root);
+    // Ajusta el modelo a las medidas del catalogo.
+    g.scale.set(
+      dim.x > 0 ? size.x / dim.x : 1,
+      dim.y > 0 ? size.y / dim.y : 1,
+      dim.z > 0 ? size.z / dim.z : 1,
+    );
+    return g;
+  }, [scene, size.x, size.y, size.z]);
+
+  return (
+    <group
+      position={[0, -(size.y * scale.y) / 2, 0]}
+      scale={[scale.x, scale.y, scale.z]}
+    >
+      <primitive object={holder} />
+    </group>
+  );
+}
+
 export function FurnitureObject({
   item,
   elevation,
@@ -579,6 +629,8 @@ export function FurnitureObject({
 
   if (!item.visible) return null;
 
+  const modelUrl = catalog.modelUrl;
+
   return (
     <mesh
       position={[
@@ -587,9 +639,11 @@ export function FurnitureObject({
         item.position.z,
       ]}
       rotation={[item.rotation.x, item.rotation.y, item.rotation.z]}
-      castShadow
-      receiveShadow
-      {...pickProps(item.id, handlers)}
+      castShadow={!modelUrl}
+      receiveShadow={!modelUrl}
+      // La bandera `furniture` permite al exportador excluir el mobiliario
+      // sin tener que resolver el id contra el documento.
+      {...pickProps(item.id, handlers, { furniture: true })}
     >
       <boxGeometry
         args={[
@@ -598,8 +652,125 @@ export function FurnitureObject({
           catalog.size.z * item.scale.z,
         ]}
       />
-      <meshStandardMaterial color={catalog.color} roughness={0.7} metalness={0.05} />
+      {modelUrl ? (
+        <>
+          <meshBasicMaterial transparent opacity={0} depthWrite={false} />
+          <Suspense fallback={null}>
+            <FurnitureModel url={modelUrl} size={catalog.size} scale={item.scale} />
+          </Suspense>
+        </>
+      ) : (
+        <meshStandardMaterial color={catalog.color} roughness={0.7} metalness={0.05} />
+      )}
       <Highlight selected={selection.has(item.id)} hovered={hoveredId === item.id} />
     </mesh>
+  );
+}
+
+/**
+ * Modelo 3D importado (GLB/GLTF).
+ *
+ * Carga el modelo desde la URL y lo posiciona/escala según la entidad.
+ * Centra el modelo en X/Z y apoya la base en y = 0.
+ */
+function ImportedModelComponent({
+  url,
+  position,
+  rotation,
+  scale,
+}: {
+  url: string;
+  position: [number, number, number];
+  rotation: [number, number, number];
+  scale: [number, number, number];
+}) {
+  const { scene } = useGLTF(url);
+
+  const holder = useMemo(() => {
+    const root = scene.clone(true);
+    root.traverse((o) => {
+      if ((o as Mesh).isMesh) {
+        o.castShadow = true;
+        o.receiveShadow = true;
+      }
+    });
+    const box = new Box3().setFromObject(root);
+    const dim = box.getSize(new Vector3());
+    const c = box.getCenter(new Vector3());
+    // Centra en X/Z y apoya la base en y = 0.
+    root.position.set(-c.x, -box.min.y, -c.z);
+    const g = new Group();
+    g.add(root);
+    // Ajusta el modelo a la escala de la entidad.
+    g.scale.set(scale[0], scale[1], scale[2]);
+    return g;
+  }, [scene, scale[0], scale[1], scale[2]]);
+
+  return (
+    <group position={position} rotation={rotation}>
+      <primitive object={holder} />
+    </group>
+  );
+}
+
+/**
+ * Frontera de error de un modelo importado.
+ *
+ * Un GLB corrupto o una URL caida no deben llevarse por delante el editor:
+ * se descarta ese modelo y el resto de la escena sigue funcionando. La planta
+ * 2D, que no depende de Three.js, continua mostrando su huella.
+ */
+class ImportedModelBoundary extends Component<
+  { children: ReactNode; name: string },
+  { failed: boolean }
+> {
+  override state = { failed: false };
+
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true };
+  }
+
+  override componentDidCatch(error: Error, info: ErrorInfo) {
+    console.error(`[imported-model] no se pudo cargar "${this.props.name}"`, error, info);
+  }
+
+  override render() {
+    return this.state.failed ? null : this.props.children;
+  }
+}
+
+export function ImportedModelObject({
+  model,
+  elevation,
+  selection,
+  hoveredId,
+  handlers,
+}: {
+  model: ImportedModel;
+  elevation: number;
+  selection: Set<string>;
+  hoveredId: string | null;
+  handlers: PickHandlers;
+}) {
+  if (!model.visible) return null;
+
+  return (
+    <group
+      position={[
+        model.position.x,
+        elevation + model.position.y,
+        model.position.z,
+      ]}
+      rotation={[model.rotation.x, model.rotation.y, model.rotation.z]}
+      scale={[model.scale.x, model.scale.y, model.scale.z]}
+      {...pickProps(model.id, handlers)}
+    >
+      <ImportedModelBoundary name={model.name}>
+        <Suspense fallback={null}>
+          <ImportedModelComponent url={model.url} position={[0, 0, 0]} rotation={[0, 0, 0]} scale={[1, 1, 1]} />
+        </Suspense>
+      </ImportedModelBoundary>
+      <Highlight selected={selection.has(model.id)} hovered={hoveredId === model.id} />
+    </group>
   );
 }

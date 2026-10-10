@@ -35,6 +35,15 @@ export function CommandPalette({ onSave }: { onSave: () => void }) {
       { id: "tool-measure", label: "Herramienta: medir", hint: "M", run: () => store.setTool("measure") },
       { id: "floor-add", label: "Agregar planta", run: () => store.dispatch({ type: "CREATE_FLOOR" }) },
       {
+        id: "floor-delete",
+        label: "Eliminar planta actual",
+        run: () => {
+          if (floorId && store.scene.floors.length > 1) {
+            store.dispatch({ type: "DELETE_OBJECTS", ids: [floorId] });
+          }
+        },
+      },
+      {
         id: "assistant",
         label: "Abrir el asistente",
         hint: "A",
@@ -70,6 +79,12 @@ export function CommandPalette({ onSave }: { onSave: () => void }) {
       { id: "copy", label: "Copiar selección", hint: "Ctrl+C", run: () => store.copySelection() },
       { id: "paste", label: "Pegar selección", hint: "Ctrl+V", run: () => store.pasteSelection() },
       { id: "save", label: "Guardar proyecto", hint: "Ctrl+S", run: onSave },
+      {
+        id: "export",
+        label: "Exportar modelo (GLB, OBJ, STL, DXF)",
+        hint: "Ctrl+E",
+        run: () => store.setExportOpen(true),
+      },
     ];
   }, [onSave]);
 

@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import {
   FURNITURE_CATALOG,
@@ -17,6 +17,8 @@ import { Outliner } from "./outliner";
 import { Inspector } from "./inspector";
 import { EditorStatusBar } from "./status-bar";
 import { CommandPalette } from "./command-palette";
+import { ExportModal } from "./export-modal";
+import { ConflictModal } from "./conflict-modal";
 import { MaterialsPanel } from "./materials-panel";
 import { PlanImportPanel } from "./plan-import-panel";
 import { AssistantPanel } from "./assistant-panel";
@@ -179,10 +181,13 @@ export function EditorShell({
   const initialize = useEditorStore((state) => state.initialize);
   const viewMode = useEditorStore((state) => state.viewMode);
   const { saveNow } = useAutosave();
+  const initializedProjectId = useRef<string | null>(null);
 
   useEditorShortcuts({ onSave: () => void saveNow() });
 
   useEffect(() => {
+    if (initializedProjectId.current === project.id) return;
+    initializedProjectId.current = project.id;
     initialize({
       projectId: project.id,
       projectName: project.name,
@@ -247,6 +252,8 @@ export function EditorShell({
 
       <EditorStatusBar />
       <CommandPalette onSave={() => void saveNow()} />
+      <ExportModal />
+      <ConflictModal />
     </div>
   );
 }

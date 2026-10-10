@@ -30,7 +30,7 @@ import {
   Raycaster,
   Vector3 as ThreeVector3,
 } from "three";
-import type { Floor, SceneDocument, Vector2 } from "@archvision/types";
+import type { Floor, ImportedModel, SceneDocument, Vector2 } from "@archvision/types";
 import {
   getSelectionPivot,
   getSelectableBounds,
@@ -39,10 +39,12 @@ import {
   type SelectableEntityKind,
 } from "@archvision/shared";
 import { useEditorStore, type ToolId } from "@/lib/editor/store";
+import { setActiveViewport } from "@/lib/3d/active-scene";
 import { readRotationStepDegrees } from "@/lib/editor/rotation-preference";
 import {
   ColumnObject,
   FurnitureObject,
+  ImportedModelObject,
   RoofObject,
   RoomFloorObject,
   SlabObject,
@@ -83,7 +85,8 @@ function CameraRig({ bounds }: { bounds: ReturnType<typeof computeSceneBounds> }
     (state) =>
       state.scene.walls.length +
         state.scene.slabs.length +
-        state.scene.roofs.length >
+        state.scene.roofs.length +
+        state.scene.importedModels.length >
       0,
   );
 
@@ -192,6 +195,24 @@ function MaterialDropTarget() {
 
     requestDrop(null);
   }, [pendingDrop, camera, gl, raycaster, threeScene, requestDrop]);
+
+  return null;
+}
+
+/**
+ * Publica el visor (escena, camara y renderer) fuera de React: el modulo de
+ * exportacion clona la escena para los formatos de malla y lee el canvas
+ * para la captura PNG; no hay otra forma de alcanzarlo desde el store.
+ */
+function ActiveSceneHandle() {
+  const scene = useThree((state) => state.scene);
+  const camera = useThree((state) => state.camera);
+  const gl = useThree((state) => state.gl);
+
+  useEffect(() => {
+    setActiveViewport({ scene, camera, gl });
+    return () => setActiveViewport(null);
+  }, [scene, camera, gl]);
 
   return null;
 }
@@ -412,6 +433,20 @@ function FloorContent({
           <PreviewTransform key={item.id} id={item.id} preview={transformPreview}>
             <FurnitureObject
               item={item}
+              elevation={floor.elevation}
+              selection={selection}
+              hoveredId={hoveredId}
+              handlers={handlers}
+            />
+          </PreviewTransform>
+        ))}
+
+      {scene.importedModels
+        .filter((model) => model.floorId === floor.id)
+        .map((model) => (
+          <PreviewTransform key={model.id} id={model.id} preview={transformPreview}>
+            <ImportedModelObject
+              model={model}
               elevation={floor.elevation}
               selection={selection}
               hoveredId={hoveredId}
@@ -911,6 +946,7 @@ function SceneContent() {
       collect("roof", scene.roofs);
       collect("slab", scene.slabs);
       collect("furniture", scene.furniture);
+      collect("imported-model", scene.importedModels);
       select(ids, additive);
       setMarquee(null);
     },
@@ -1210,17 +1246,19 @@ function SceneContent() {
         </group>
       ) : null}
 
-      {scene.floors.map((floor) => (
-        <FloorContent
-          key={floor.id}
-          floor={floor}
-          scene={scene}
-          selection={selection}
-          hoveredId={hoveredId}
-          handlers={handlers}
-          transformPreview={transformPreview}
-        />
-      ))}
+      {scene.floors
+        .filter((floor) => !activeFloorId || floor.id === activeFloorId)
+        .map((floor) => (
+          <FloorContent
+            key={floor.id}
+            floor={floor}
+            scene={scene}
+            selection={selection}
+            hoveredId={hoveredId}
+            handlers={handlers}
+            transformPreview={transformPreview}
+          />
+        ))}
 
       {tool === "wall" && drawStart && cursor ? (
         <WallPreview
@@ -1332,6 +1370,7 @@ export function Viewport3D() {
         minDistance={1}
         maxDistance={400}
       />
+      <ActiveSceneHandle />
       <SceneContent />
     </Canvas>
     </div>

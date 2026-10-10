@@ -98,6 +98,33 @@ toda la operación se deshace con `Ctrl+Z` como cualquier otra edición.
 Todo eso corresponde al servicio de visión de la fase 6, que consumirá esta
 misma interfaz (`DetectedWall[]`) desde un modelo entrenado.
 
+## Análisis automático (fastapi `/api/v1/floorplan/analyze`)
+
+Además del detector del navegador, el panel de importación lanza el análisis
+del microservicio en cuanto el archivo está guardado. El recorrido completo es:
+
+1. `useFileImport` sube el archivo a `/api/projects/:id/files` y, si es una
+   imagen, coloca el `underlay` en la escena.
+2. Vuelve a enviar **el archivo** (multipart) a
+   `/api/projects/:id/ai/floorplan`, que hace de proxy autenticado contra
+   `/api/v1/floorplan/analyze`. Enviar un JSON con el `fileId` aquí era el
+   fallo original: el proxy esperaba el binario y el análisis nunca se
+   ejecutaba, así que la escena se quedaba vacía con el plano guardado.
+3. `POST /api/projects/:id/ai/floorplan/apply` traduce la respuesta a comandos
+   de creación (`CREATE_WALL`, `CREATE_DOOR`, `CREATE_WINDOW`, todos con
+   `origin: "ai"`). La conversión de unidades vive en
+   `packages/shared/src/floorplan-import.ts`:
+   - **CAD**: unidades declaradas (`$INSUNITS`) a metros;
+   - **raster**: píxeles a metros. Si el análisis se hizo sobre el mismo
+     archivo que el `underlay` visible, se usa la calibración del usuario
+     (`pixelToWorld`) y los muros caen dentro de la imagen; si no, la
+     aproximación del servicio de 100 px/m.
+4. El cliente emite los comandos en un único lote (`dispatchBatch`): un solo
+   Ctrl+Z deshace toda la estructura. Las aperturas se resuelven contra los
+   muros recién creados, porque un vano cuelga del id de su muro.
+5. El reductor recalcula los recintos (`withRecomputedRooms`), así que las
+   habitaciones aparecen solas en la planta 2D y en 3D.
+
 ## Precisión
 
 Sobre un plano limpio y bien calibrado, el error típico está en torno al 1 % de

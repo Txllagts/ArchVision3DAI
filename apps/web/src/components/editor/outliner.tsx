@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { Eye, EyeOff, Lock, LockOpen } from "lucide-react";
+import { Eye, EyeOff, Lock, LockOpen, Trash2 } from "lucide-react";
 import type { SceneDocument } from "@archvision/types";
 import { useEditorStore } from "@/lib/editor/store";
 import { cn } from "@/lib/utils";
@@ -48,6 +48,7 @@ function groupsForFloor(scene: SceneDocument, floorId: string): OutlinerGroup[] 
     { key: "slabs", label: "Losas", items: pick(scene.slabs) },
     { key: "roofs", label: "Cubiertas", items: pick(scene.roofs) },
     { key: "furniture", label: "Mobiliario", items: pick(scene.furniture) },
+    { key: "models", label: "Modelos 3D", items: pick(scene.importedModels) },
     {
       key: "rooms",
       label: "Habitaciones",
@@ -92,20 +93,64 @@ export function Outliner() {
           const isActive = floor.id === activeFloorId;
 
           return (
-            <div key={floor.id} className="mb-2">
-              <button
-                type="button"
-                onClick={() => setActiveFloor(floor.id)}
+            <div key={floor.id} className="group/floor mb-2">
+              <div
                 className={cn(
-                  "flex w-full items-center gap-2 rounded px-2 py-1 text-left",
+                  "flex w-full items-center gap-2 rounded px-2 py-1 text-left transition-colors",
                   isActive ? "bg-accent/10 text-accent" : "text-ink hover:bg-surface-2",
                 )}
               >
-                <span className="truncate font-medium">{floor.name}</span>
-                <span className="ml-auto font-mono text-[10px] text-ink-subtle">
-                  {floor.elevation.toFixed(2)} m
-                </span>
-              </button>
+                <button
+                  type="button"
+                  onClick={() => setActiveFloor(floor.id)}
+                  className="flex flex-1 items-center gap-2 truncate text-left"
+                >
+                  <span className="truncate font-medium">{floor.name}</span>
+                  <span className="ml-auto font-mono text-[10px] text-ink-subtle">
+                    {floor.elevation.toFixed(2)} m
+                  </span>
+                </button>
+                <button
+                  type="button"
+                  aria-label={floor.visible ? `Ocultar ${floor.name}` : `Mostrar ${floor.name}`}
+                  title={floor.visible ? `Ocultar ${floor.name}` : `Mostrar ${floor.name}`}
+                  className={cn(
+                    "transition-opacity",
+                    floor.visible
+                      ? "opacity-0 group-hover/floor:opacity-100 text-ink-muted hover:text-ink"
+                      : "opacity-100 text-warn"
+                  )}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    dispatch({
+                      type: "SET_VISIBILITY",
+                      ids: [floor.id],
+                      visible: !floor.visible,
+                    });
+                  }}
+                >
+                  {floor.visible ? (
+                    <Eye className="size-3.5" aria-hidden />
+                  ) : (
+                    <EyeOff className="size-3.5 text-warn" aria-hidden />
+                  )}
+                </button>
+
+                {scene.floors.length > 1 ? (
+                  <button
+                    type="button"
+                    aria-label={`Eliminar ${floor.name}`}
+                    title={`Eliminar ${floor.name}`}
+                    className="opacity-0 transition-opacity hover:text-danger group-hover/floor:opacity-100"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      dispatch({ type: "DELETE_OBJECTS", ids: [floor.id] });
+                    }}
+                  >
+                    <Trash2 className="size-3" aria-hidden />
+                  </button>
+                ) : null}
+              </div>
 
               {groups.map((group) => {
                 const groupKey = `${floor.id}:${group.key}`;
@@ -181,7 +226,12 @@ export function Outliner() {
                                 type="button"
                                 aria-label={item.visible ? "Ocultar" : "Mostrar"}
                                 title={item.visible ? "Ocultar" : "Mostrar"}
-                                className="opacity-0 transition-opacity group-hover:opacity-100"
+                                className={cn(
+                                  "transition-opacity",
+                                  item.visible
+                                    ? "opacity-0 group-hover:opacity-100"
+                                    : "opacity-100"
+                                )}
                                 onClick={() =>
                                   dispatch({
                                     type: "SET_VISIBILITY",
@@ -201,7 +251,12 @@ export function Outliner() {
                                 type="button"
                                 aria-label={item.locked ? "Desbloquear" : "Bloquear"}
                                 title={item.locked ? "Desbloquear" : "Bloquear"}
-                                className="opacity-0 transition-opacity group-hover:opacity-100"
+                                className={cn(
+                                  "transition-opacity",
+                                  item.locked
+                                    ? "opacity-0 group-hover:opacity-100 text-warn opacity-100"
+                                    : "opacity-0 group-hover:opacity-100"
+                                )}
                                 onClick={() =>
                                   dispatch({
                                     type: "SET_LOCK",
@@ -215,6 +270,21 @@ export function Outliner() {
                                 ) : (
                                   <LockOpen className="size-3" aria-hidden />
                                 )}
+                              </button>
+
+                              <button
+                                type="button"
+                                aria-label={`Eliminar ${item.name}`}
+                                title={`Eliminar ${item.name}`}
+                                className="opacity-0 transition-opacity hover:text-danger group-hover:opacity-100"
+                                onClick={() =>
+                                  dispatch({
+                                    type: "DELETE_OBJECTS",
+                                    ids: [item.id],
+                                  })
+                                }
+                              >
+                                <Trash2 className="size-3" aria-hidden />
                               </button>
                             </div>
                           );

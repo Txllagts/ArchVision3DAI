@@ -98,13 +98,13 @@ export function AuthForm({ mode }: { mode: Mode }) {
       />
 
       <TextField
-        label="Contrasena"
+        label="Contraseña"
         name="password"
         type="password"
         autoComplete={mode === "login" ? "current-password" : "new-password"}
         placeholder="********"
         required
-        hint={mode === "register" ? "Minimo 10 caracteres, con letras y numeros" : undefined}
+        hint={mode === "register" ? "Mínimo 10 caracteres, con letras y números" : undefined}
         error={fieldErrors.password}
       />
 
@@ -115,7 +115,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
       ) : null}
 
       <Button type="submit" className="w-full justify-center" loading={loading}>
-        {mode === "login" ? "Iniciar sesion" : "Crear cuenta"}
+        {mode === "login" ? "Iniciar sesión" : "Crear cuenta"}
       </Button>
     </form>
   );

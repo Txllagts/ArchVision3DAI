@@ -1,11 +1,12 @@
 @import "tailwindcss";
 
 /*
- * Sistema visual de ArchVision 3D AI.
+ * Sistema visual de ArchVision 3D AI ("El Plano Azul Vivo").
  *
- * Referencia: software CAD moderno. Superficies frias y oscuras, acento
- * cian tecnico, tipografia compacta y bordes de 1px. El editor usa siempre el
- * tema oscuro; el dashboard y la landing respetan la eleccion del usuario.
+ * Referencia: software CAD moderno sobre papel cianotipo. Superficies navy,
+ * un unico acento azul cielo, tipografia Barlow y bordes de 1px. El editor y
+ * la landing usan siempre el tema oscuro; el dashboard respeta la eleccion
+ * del usuario. Fuente de verdad: apps/web/DESIGN.md.
  */
 
 @custom-variant dark (&:where(.dark, .dark *));
@@ -23,57 +24,76 @@
   --color-accent: var(--accent);
   --color-accent-soft: var(--accent-soft);
   --color-accent-ink: var(--accent-ink);
+  --color-accent-fill: var(--accent-fill);
+  --color-accent-fill-ink: var(--accent-fill-ink);
+  --color-accent-hover: var(--accent-hover);
   --color-warn: var(--warn);
   --color-danger: var(--danger);
   --color-ok: var(--ok);
 
   --font-sans: var(--font-sans-stack);
+  --font-display: var(--font-display-stack);
   --font-mono: var(--font-mono-stack);
 
   --radius-panel: 0.75rem;
 }
 
 :root {
-  --font-sans-stack: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
-    "Helvetica Neue", Arial, sans-serif;
-  --font-mono-stack: ui-monospace, "JetBrains Mono", "Cascadia Mono", Menlo,
-    Consolas, monospace;
+  /* Curvas de aceleración y animación */
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
 
-  /* Tema claro */
-  --canvas: #f4f6f8;
+  /* Las variables --font-barlow* las inyecta next/font en el layout. */
+  --font-sans-stack: var(--font-barlow), system-ui, -apple-system, "Segoe UI",
+    Roboto, sans-serif;
+  --font-display-stack: var(--font-barlow-condensed), var(--font-barlow),
+    system-ui, sans-serif;
+  --font-mono-stack: var(--font-jetbrains), ui-monospace, "Cascadia Mono",
+    Menlo, Consolas, monospace;
+
+  /* Tema claro: lienzo Drafting Mist, tarjetas blancas, texto Abyss Navy. */
+  --canvas: #e9eff2;
   --surface: #ffffff;
-  --surface-2: #eef1f5;
-  --surface-3: #e3e8ee;
-  --line: #d8dee6;
-  --line-strong: #b9c2cd;
-  --ink: #10151c;
-  --ink-muted: #4d5866;
-  --ink-subtle: #7b8794;
-  --accent: #0e7490;
-  --accent-soft: #cffafe;
+  --surface-2: #dde6ec;
+  --surface-3: #cfdbe4;
+  --line: #c8d5df;
+  --line-strong: #a3b6c6;
+  --ink: #041840;
+  --ink-muted: #36507a;
+  --ink-subtle: #62789a;
+  /* Sky Ink: Survey Sky no alcanza AA como texto sobre fondo claro. */
+  --accent: #0b6db3;
+  --accent-soft: #d5ecfb;
   --accent-ink: #ffffff;
+  --accent-fill: #2ea7f2;
+  --accent-fill-ink: #041840;
+  --accent-hover: #44c1f2;
   --warn: #b45309;
-  --danger: #b91c1c;
+  --danger: #c62828;
   --ok: #15803d;
 }
 
 .dark {
-  /* Tema oscuro: por defecto en editor y recomendado en dashboard */
+  /* Tema oscuro: landing, editor y dashboard oscuro. Superficies grafito
+   * casi negras (base anterior) con los acentos azul cielo de la paleta. */
   --canvas: #0a0c10;
   --surface: #11151b;
   --surface-2: #171c24;
   --surface-3: #1f252f;
   --line: #262d38;
   --line-strong: #38414f;
-  --ink: #e8edf4;
+  --ink: #e9eff2;
   --ink-muted: #a3adbb;
   --ink-subtle: #6b7686;
-  --accent: #22d3ee;
-  --accent-soft: #0b3a46;
-  --accent-ink: #04191f;
-  --warn: #f59e0b;
-  --danger: #f87171;
-  --ok: #4ade80;
+  --accent: #2ea7f2;
+  --accent-soft: #0b2a45;
+  --accent-ink: #041840;
+  --accent-fill: #2ea7f2;
+  --accent-fill-ink: #041840;
+  --accent-hover: #44c1f2;
+  --warn: #f5a524;
+  --danger: #f2545b;
+  --ok: #3dd68c;
 }
 
 * {
@@ -85,11 +105,45 @@ body {
   height: 100%;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 body {
   background-color: var(--canvas);
   color: var(--ink);
   font-family: var(--font-sans-stack);
   -webkit-font-smoothing: antialiased;
+}
+
+h1,
+h2,
+h3 {
+  text-wrap: balance;
+}
+
+/*
+ * Tailwind v4 deja los botones con cursor "default". En una herramienta
+ * web el cursor de mano confirma que algo es clicable, asi que se restaura
+ * para todo elemento interactivo habilitado.
+ */
+@layer base {
+  button:not(:disabled),
+  [role="button"]:not([aria-disabled="true"]),
+  [type="button"]:not(:disabled),
+  [type="submit"]:not(:disabled),
+  [type="reset"]:not(:disabled),
+  select:not(:disabled),
+  summary,
+  label[for],
+  a[href] {
+    cursor: pointer;
+  }
+
+  button:disabled,
+  [aria-disabled="true"] {
+    cursor: not-allowed;
+  }
 }
 
 /* Retícula técnica usada en cabeceras y en el fondo de la landing. */
@@ -120,4 +174,270 @@ body {
 * {
   scrollbar-width: thin;
   scrollbar-color: var(--line-strong) transparent;
+}
+
+/* ------------------------------------------------------------------ */
+/* Movimiento                                                          */
+/* ------------------------------------------------------------------ */
+
+/*
+ * Momento focal de la landing: el hero se "traza" como un plano. La retícula
+ * aparece desde el centro, el titular emerge, y una linea de cota en Survey
+ * Sky mide el ancho del titular. Todo es CSS: si JS falla, el hero se ve.
+ */
+@keyframes av-grid-in {
+  from {
+    opacity: 0;
+    transform: scale(1.04);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes av-rise {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+    filter: blur(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+    filter: blur(0);
+  }
+}
+
+@keyframes av-measure {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+
+@keyframes av-tick {
+  from {
+    opacity: 0;
+    transform: scaleY(0);
+  }
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+
+@keyframes av-glow-drift {
+  0%,
+  100% {
+    transform: translate3d(0, 0, 0);
+  }
+  50% {
+    transform: translate3d(3%, -2%, 0);
+  }
+}
+
+@keyframes av-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.hero-grid {
+  animation: av-grid-in 1200ms var(--ease-out-expo) both;
+  mask-image: radial-gradient(ellipse 70% 60% at 30% 40%, #000 30%, transparent 75%);
+}
+
+.hero-glow {
+  background: radial-gradient(
+    closest-side,
+    color-mix(in oklab, var(--accent-hover) 16%, transparent),
+    transparent
+  );
+  animation:
+    av-fade 1600ms var(--ease-out-expo) both,
+    av-glow-drift 18s ease-in-out 1.6s infinite;
+}
+
+.hero-rise {
+  animation: av-rise 800ms var(--ease-out-expo) both;
+  animation-delay: var(--delay, 0ms);
+}
+
+/* Linea de cota: barra horizontal con marcas en los extremos. */
+.cota {
+  position: relative;
+  height: 12px;
+}
+
+.cota::before {
+  content: "";
+  position: absolute;
+  inset: 5px 0 auto 0;
+  height: 1px;
+  background: var(--accent);
+  transform-origin: left center;
+  animation: av-measure 900ms var(--ease-out-expo) 650ms both;
+}
+
+.cota > span {
+  position: absolute;
+  top: 0;
+  width: 1px;
+  height: 12px;
+  background: var(--accent);
+  transform-origin: center;
+  animation: av-tick 300ms var(--ease-out-expo) both;
+}
+
+.cota > span:first-child {
+  left: 0;
+  animation-delay: 550ms;
+}
+
+.cota > span:last-child {
+  right: 0;
+  animation-delay: 1450ms;
+}
+
+/*
+ * Revelado al hacer scroll. El contenido es visible por defecto; el
+ * componente <Reveal> solo lo oculta despues de hidratar si aun esta fuera
+ * de pantalla, asi nunca queda contenido escondido sin JS.
+ */
+[data-reveal="hidden"] {
+  opacity: 0;
+  transform: translateY(24px);
+  filter: blur(4px);
+}
+
+[data-reveal="shown"] {
+  opacity: 1;
+  transform: none;
+  filter: blur(0);
+  transition:
+    opacity 700ms var(--ease-out-expo),
+    transform 700ms var(--ease-out-expo),
+    filter 700ms var(--ease-out-expo);
+  transition-delay: var(--reveal-delay, 0ms);
+}
+
+/* Brillo que barre el boton primario al pasar el cursor. */
+.btn-sheen {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.btn-sheen::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(
+    105deg,
+    transparent 30%,
+    rgb(255 255 255 / 0.45) 50%,
+    transparent 70%
+  );
+  transform: translateX(-120%);
+  transition: transform 0ms;
+  pointer-events: none;
+}
+
+.btn-sheen:hover::after {
+  transform: translateX(120%);
+  transition: transform 700ms var(--ease-out-expo);
+}
+
+/* Acordeon: anima la altura con grid-template-rows (sin medir en JS). */
+.accordion-body {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 380ms var(--ease-out-expo);
+}
+
+.accordion-body[data-open="true"] {
+  grid-template-rows: 1fr;
+}
+
+.accordion-body > div {
+  overflow: hidden;
+}
+
+.accordion-body > div > * {
+  opacity: 0;
+  transform: translateY(-6px);
+  transition:
+    opacity 200ms var(--ease-standard),
+    transform 200ms var(--ease-standard);
+}
+
+.accordion-body[data-open="true"] > div > * {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 320ms var(--ease-out-expo) 80ms,
+    transform 320ms var(--ease-out-expo) 80ms;
+}
+
+/* Cambio de valor (p. ej. precio mensual -> anual). */
+@keyframes av-swap {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.av-swap {
+  animation: av-swap 360ms var(--ease-out-expo) both;
+}
+
+/* Movimiento reducido: sin desplazamientos ni desenfoques, solo opacidad. */
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+
+  .hero-grid,
+  .hero-rise {
+    animation: av-fade 300ms ease-out both;
+  }
+
+  .hero-glow {
+    animation: av-fade 300ms ease-out both;
+  }
+
+  .cota::before,
+  .cota > span {
+    animation: none;
+  }
+
+  [data-reveal="hidden"] {
+    transform: none;
+    filter: none;
+  }
+
+  [data-reveal="shown"] {
+    transition: opacity 300ms ease-out;
+  }
+
+  .btn-sheen::after {
+    display: none;
+  }
+
+  .accordion-body,
+  .accordion-body > div > * {
+    transition-duration: 1ms;
+    transform: none;
+  }
 }

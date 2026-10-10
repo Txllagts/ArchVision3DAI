@@ -4,6 +4,7 @@ import type {
   Door,
   Floor,
   FurnitureInstance,
+  ImportedModel,
   LightEntity,
   MaterialDefinition,
   Opening,
@@ -24,7 +25,7 @@ import type { EntityId, Vector2 } from "./primitives";
  * Cualquier cambio de forma exige subir SCENE_SCHEMA_VERSION y anadir un
  * migrador en `migrateScene`.
  */
-export const SCENE_SCHEMA_VERSION = "1.2" as const;
+export const SCENE_SCHEMA_VERSION = "1.3" as const;
 
 export type SceneSchemaVersion = typeof SCENE_SCHEMA_VERSION;
 
@@ -34,8 +35,9 @@ export type SceneSchemaVersion = typeof SCENE_SCHEMA_VERSION;
  * 1.0 — formato inicial.
  * 1.1 — materiales con textura procedural (`texture`, `bump`).
  * 1.2 — plano de referencia importado (`underlay`).
+ * 1.3 — modelos 3D importados (`importedModels`).
  */
-export const SCENE_SCHEMA_HISTORY = ["1.0", "1.1", "1.2"] as const;
+export const SCENE_SCHEMA_HISTORY = ["1.0", "1.1", "1.2", "1.3"] as const;
 export type AnySceneSchemaVersion = (typeof SCENE_SCHEMA_HISTORY)[number];
 
 export interface SceneEnvironment {
@@ -109,6 +111,7 @@ export interface SceneDocument {
   slabs: Slab[];
   rooms: Room[];
   furniture: FurnitureInstance[];
+  importedModels: ImportedModel[];
   materials: MaterialDefinition[];
   lights: LightEntity[];
   cameras: CameraPreset[];
@@ -142,6 +145,7 @@ export function createEmptyScene(): SceneDocument {
     slabs: [],
     rooms: [],
     furniture: [],
+    importedModels: [],
     materials: [],
     lights: [],
     cameras: [],

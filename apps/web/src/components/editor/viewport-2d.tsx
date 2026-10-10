@@ -10,14 +10,20 @@ import {
   type PointerEvent as ReactPointerEvent,
   type WheelEvent as ReactWheelEvent,
 } from "react";
+import { Layers } from "lucide-react";
 import type { MaterialDefinition, SceneDocument, Vector2, Wall } from "@archvision/types";
 import {
   distance2,
+  cachedGlbBounds,
   containsRect2D,
   formatArea,
   formatLength,
+  FURNITURE_FALLBACK,
+  furnitureById,
   getSelectableBounds,
+  importedModelSize,
   intersectsRect2D,
+  loadGlbBounds,
   polygonCentroid,
   type SelectableEntities,
   type SelectableEntityKind,
@@ -47,17 +53,73 @@ type DragState =
   | { kind: "pan"; origin: Vector2; startCenter: Vector2 }
   | { kind: "node"; wallId: string; end: "start" | "end"; preview: Vector2 }
   | {
-      kind: "wall";
-      wallId: string;
+      kind: "move";
       ids: string[];
       origin: Vector2;
       delta: Vector2;
+    }
+  | {
+      kind: "stairRotate";
+      stairId: string;
+      origin: Vector2;
+      startAngle: number;
+      currentAngle: number;
     }
   | { kind: "marquee"; origin: Vector2; current: Vector2 }
   | null;
 
 const MIN_SCALE = 4;
 const MAX_SCALE = 320;
+
+/**
+ * Huella en planta de un modelo 3D importado.
+ *
+ * El GLB se renderiza en el visor 3D; aqui solo se dibuja su proyeccion: un
+ * rectangulo con el tamaño real de la caja del modelo, centrado donde el
+ * modelo está apoyado y girado con su rotacion. La caja se lee de la cabecera
+ * del archivo (ver `importedModelSize`), asi que la planta no carga Three.js
+ * ni se bloquea.
+ */
+function importedModelFootprint(
+  model: SceneDocument["importedModels"][number],
+): {
+  center: Vector2;
+  size: { x: number; z: number };
+  rotationDeg: number;
+} {
+  const size = importedModelSize(model.url, model.scale);
+  return {
+    center: { x: model.position.x, y: model.position.z },
+    size: { x: size.x, z: size.z },
+    rotationDeg: (-model.rotation.y * 180) / Math.PI,
+  };
+}
+
+/**
+ * Huella en planta de una pieza de mobiliario.
+ *
+ * Usa las dimensiones reales del catalogo (ancho x fondo) escaladas por la
+ * instancia y giradas con su rotacion, en lugar del cuadrado fijo de 0,6 m
+ * que no representaba nada. Si el catalogo ya no conoce la pieza se cae a la
+ * misma caja por defecto que usan los bounds seleccionables.
+ */
+function furnitureFootprint(item: SceneDocument["furniture"][number]): {
+  center: Vector2;
+  size: { x: number; z: number };
+  rotationDeg: number;
+  color: string;
+} {
+  const catalog = furnitureById(item.catalogId) ?? FURNITURE_FALLBACK;
+  return {
+    center: { x: item.position.x, y: item.position.z },
+    size: {
+      x: catalog.size.x * item.scale.x,
+      z: catalog.size.z * item.scale.z,
+    },
+    rotationDeg: (-item.rotation.y * 180) / Math.PI,
+    color: catalog.color,
+  };
+}
 
 function boundsOfScene(scene: SceneDocument): { min: Vector2; max: Vector2 } {
   let minX = Number.POSITIVE_INFINITY;
@@ -78,6 +140,14 @@ function boundsOfScene(scene: SceneDocument): { min: Vector2; max: Vector2 } {
   }
   for (const slab of scene.slabs) for (const point of slab.outline) include(point);
 
+  // Un proyecto que solo tiene modelos importados tambien tiene extension:
+  // sin esto, el encuadre inicial se quedaba en el mundo vacio de ±5 m.
+  for (const model of scene.importedModels) {
+    const footprint = importedModelFootprint(model);
+    include({ x: footprint.center.x - footprint.size.x / 2, y: footprint.center.y - footprint.size.z / 2 });
+    include({ x: footprint.center.x + footprint.size.x / 2, y: footprint.center.y + footprint.size.z / 2 });
+  }
+
   if (!Number.isFinite(minX)) {
     return { min: { x: -5, y: -5 }, max: { x: 5, y: 5 } };
   }
@@ -95,6 +165,8 @@ export function Viewport2D() {
   const [drawStart, setDrawStart] = useState<Vector2 | null>(null);
   const [drag, setDrag] = useState<DragState>(null);
   const fitted = useRef(false);
+  /** Solo fuerza un render cuando llega la caja de un modelo importado. */
+  const [modelBoundsVersion, setModelBoundsVersion] = useState(0);
 
   const scene = useEditorStore((state) => state.scene);
   const projectId = useEditorStore((state) => state.projectId);
@@ -108,6 +180,7 @@ export function Viewport2D() {
   const furnitureCatalogId = useEditorStore((state) => state.furnitureCatalogId);
   const measure = useEditorStore((state) => state.measure);
   const dispatch = useEditorStore((state) => state.dispatch);
+  const setActiveFloor = useEditorStore((state) => state.setActiveFloor);
   const select = useEditorStore((state) => state.select);
   const paintMaterial = useEditorStore((state) => state.paintMaterial);
   const setHovered = useEditorStore((state) => state.setHovered);
@@ -135,10 +208,54 @@ export function Viewport2D() {
     () => scene.columns.filter((column) => column.floorId === activeFloor?.id),
     [scene.columns, activeFloor?.id],
   );
+  const stairs = useMemo(
+    () => scene.stairs.filter((stair) => stair.floorId === activeFloor?.id),
+    [scene.stairs, activeFloor?.id],
+  );
   const furniture = useMemo(
     () => scene.furniture.filter((item) => item.floorId === activeFloor?.id),
     [scene.furniture, activeFloor?.id],
   );
+  const importedModels = useMemo(
+    () => scene.importedModels.filter((model) => model.floorId === activeFloor?.id),
+    [scene.importedModels, activeFloor?.id],
+  );
+  // `modelBoundsVersion` entra a proposito: cuando llega la caja real de un
+  // GLB, la huella se recalcula con sus medidas verdadeeras.
+  const modelFootprints = useMemo(
+    () => importedModels.map((model) => ({ model, footprint: importedModelFootprint(model) })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [importedModels, modelBoundsVersion],
+  );
+  const furnitureFootprints = useMemo(
+    () => furniture.map((item) => ({ item, footprint: furnitureFootprint(item) })),
+    [furniture],
+  );
+
+  // La caja de cada GLB se descarga una sola vez y queda en cache. Mientras
+  // llega, la planta dibuja el tamaño por defecto: el modelo se ve desde el
+  // primer render y afina su huella cuando se conoce la real.
+  useEffect(() => {
+    if (importedModels.length === 0) return;
+    let cancelled = false;
+
+    const pending = importedModels
+      .filter((model) => model.visible && cachedGlbBounds(model.url) === null)
+      .map((model) => model.url);
+
+    if (pending.length === 0) return;
+
+    void Promise.all(pending.map((url) => loadGlbBounds(url))).then((results) => {
+      if (cancelled) return;
+      if (results.some((bounds) => bounds !== null)) {
+        setModelBoundsVersion((version) => version + 1);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [importedModels]);
 
   // --- Encaje al contenedor -------------------------------------------------
   useLayoutEffect(() => {
@@ -220,6 +337,33 @@ export function Viewport2D() {
   );
 
   // --- Interaccion ----------------------------------------------------------
+
+  /**
+   * Inicia el arrastre de una entidad (muro, mueble, huella de modelo o vano)
+   * con la herramienta Seleccion.
+   *
+   * Si el objeto ya forma parte de una seleccion multiple se arrastra el grupo
+   * (sin las habitaciones, que el reductor expandiria a toda la planta). Los
+   * vanos no tienen transformacion propia: el reductor expande su id al muro
+   * anfitrion, igual que en el visor 3D.
+   */
+  const startMoveDrag = useCallback(
+    (event: ReactPointerEvent<SVGElement>, id: string) => {
+      if (tool !== "select" || event.button !== 0) return;
+      event.stopPropagation();
+      event.currentTarget.setPointerCapture(event.pointerId);
+      const wasSelected = selection.has(id);
+      const ids =
+        wasSelected && selectionList.length > 1
+          ? selectionList.filter((entityId) => !rooms.some((room) => room.id === entityId))
+          : [id];
+      if (!wasSelected || event.shiftKey) select([id], event.shiftKey);
+      const raw = toWorld(event.clientX, event.clientY);
+      setDrag({ kind: "move", ids, origin: raw, delta: { x: 0, y: 0 } });
+    },
+    [rooms, selection, selectionList, select, tool, toWorld],
+  );
+
   const handlePointerDown = useCallback(
     (event: ReactPointerEvent<SVGSVGElement>) => {
       if (!activeFloor) return;
@@ -361,11 +505,23 @@ export function Viewport2D() {
         return;
       }
 
-      if (drag.kind === "wall") {
+      if (drag.kind === "move") {
         setDrag({
           ...drag,
           delta: { x: raw.x - drag.origin.x, y: raw.y - drag.origin.y },
         });
+        return;
+      }
+
+      if (drag.kind === "stairRotate") {
+        const vx = raw.x - drag.origin.x;
+        const vy = raw.y - drag.origin.y;
+        let angle = Math.atan2(vx, vy);
+        if (event.shiftKey) {
+          const snapRad = (15 * Math.PI) / 180;
+          angle = Math.round(angle / snapRad) * snapRad;
+        }
+        setDrag({ ...drag, currentAngle: angle });
         return;
       }
 
@@ -387,12 +543,23 @@ export function Viewport2D() {
       });
     }
 
-    if (drag.kind === "wall" && (drag.delta.x !== 0 || drag.delta.y !== 0)) {
+    if (drag.kind === "move" && (drag.delta.x !== 0 || drag.delta.y !== 0)) {
       dispatch({
         type: "TRANSFORM_OBJECTS",
         ids: drag.ids,
         translate: { x: drag.delta.x, y: 0, z: drag.delta.y },
       });
+    }
+
+    if (drag.kind === "stairRotate") {
+      const deltaAngle = drag.currentAngle - drag.startAngle;
+      if (Math.abs(deltaAngle) > 0.001) {
+        dispatch({
+          type: "TRANSFORM_OBJECTS",
+          ids: [drag.stairId],
+          rotateY: deltaAngle,
+        });
+      }
     }
 
     if (drag.kind === "marquee") {
@@ -404,6 +571,11 @@ export function Viewport2D() {
         maxY: Math.max(drag.origin.y, current.y),
       };
       const crossing = current.x < drag.origin.x;
+      // Las habitaciones quedan fuera del marquee: su poligono abarca todo
+      // el interior y `getTransformTargetIds` las expande a todos sus muros,
+      // de modo que cualquier ventana convertia la seleccion en un grupo
+      // implicito que arrastraba la planta entera. Siguen siendo seleccionables
+      // con un clic directo sobre el poligono.
       const ids: string[] = [];
       const collect = <Kind extends SelectableEntityKind>(
         kind: Kind,
@@ -436,13 +608,13 @@ export function Viewport2D() {
       collect("window", scene.windows);
       collect("opening", scene.openings);
       collect("column", columns);
-      collect("room", rooms);
       collect("furniture", furniture);
+      collect("imported-model", importedModels);
       select(ids, event.shiftKey);
     }
 
     setDrag(null);
-  }, [activeFloor?.id, columns, dispatch, drag, furniture, rooms, scene, select, toWorld, walls]);
+  }, [activeFloor?.id, columns, dispatch, drag, furniture, importedModels, scene, select, toWorld, walls]);
 
   const handleWheel = useCallback(
     (event: ReactWheelEvent<SVGSVGElement>) => {
@@ -476,7 +648,7 @@ export function Viewport2D() {
         ? { start: drag.preview, end: wall.end }
         : { start: wall.start, end: drag.preview };
     }
-    if (drag?.kind === "wall" && drag.ids.includes(wall.id)) {
+    if (drag?.kind === "move" && drag.ids.includes(wall.id)) {
       return {
         start: { x: wall.start.x + drag.delta.x, y: wall.start.y + drag.delta.y },
         end: { x: wall.end.x + drag.delta.x, y: wall.end.y + drag.delta.y },
@@ -633,6 +805,56 @@ export function Viewport2D() {
           strokeWidth={1}
         />
 
+        {/*
+          Modelos 3D importados: huella en planta.
+
+          Va debajo de habitaciones, muros, vanos y mobiliario: la huella es
+          una referencia de planta, no una capa que deba comerse los clics de
+          las entidades del documento. Al quedar detras, cada muro, vano o
+          mueble se selecciona y arrastra por separado aunque el modelo
+          cubra la planta; la propia huella sigue siendo seleccionable en las
+          zonas que no cubre ninguna entidad (por ejemplo, un proyecto que
+          solo tiene el modelo).
+        */}
+        {modelFootprints.map(({ model, footprint }) => {
+          const [baseX, baseY] = toScreen(footprint.center);
+          const offset =
+            drag?.kind === "move" && drag.ids.includes(model.id)
+              ? { x: drag.delta.x * view.scale, y: drag.delta.y * view.scale }
+              : { x: 0, y: 0 };
+          const cx = baseX + offset.x;
+          const cy = baseY + offset.y;
+          const width = Math.max(4, footprint.size.x * view.scale);
+          const height = Math.max(4, footprint.size.z * view.scale);
+          const isSelected = selection.has(model.id);
+
+          return (
+            <rect
+              key={model.id}
+              x={cx - width / 2}
+              y={cy - height / 2}
+              width={width}
+              height={height}
+              rx={2}
+              transform={`rotate(${footprint.rotationDeg} ${cx} ${cy})`}
+              fill={isSelected ? "rgba(34,211,238,0.18)" : "rgba(125,211,252,0.08)"}
+              stroke={isSelected ? "#22d3ee" : "#7dd3fc"}
+              strokeWidth={isSelected ? 1.5 : 1}
+              strokeDasharray="4 3"
+              opacity={model.visible ? 0.9 : 0.3}
+              style={{ cursor: tool === "select" ? "move" : "default" }}
+              onPointerDown={(event) => {
+                if (tool === "paint" && event.button === 0) {
+                  event.stopPropagation();
+                  paintMaterial(model.id);
+                  return;
+                }
+                startMoveDrag(event, model.id);
+              }}
+            />
+          );
+        })}
+
         {/* Habitaciones */}
         {rooms.map((room) => {
           const points = room.polygon
@@ -758,22 +980,7 @@ export function Viewport2D() {
                     paintMaterial(wall.id);
                     return;
                   }
-                  if (tool !== "select" || event.button !== 0) return;
-                  event.stopPropagation();
-                  event.currentTarget.setPointerCapture(event.pointerId);
-                  const wasSelected = selection.has(wall.id);
-                  const ids = wasSelected && selectionList.length > 1
-                    ? [...selectionList]
-                    : [wall.id];
-                  if (!wasSelected || event.shiftKey) select([wall.id], event.shiftKey);
-                  const raw = toWorld(event.clientX, event.clientY);
-                  setDrag({
-                    kind: "wall",
-                    wallId: wall.id,
-                    ids,
-                    origin: raw,
-                    delta: { x: 0, y: 0 },
-                  });
+                  startMoveDrag(event, wall.id);
                 }}
               />
 
@@ -826,7 +1033,7 @@ export function Viewport2D() {
         {openingMarkers.map((marker) => {
           const [baseX, baseY] = toScreen(marker.center);
           const offset =
-            drag?.kind === "wall" &&
+            drag?.kind === "move" &&
             (drag.ids.includes(marker.id) || drag.ids.includes(marker.wallId))
               ? { x: drag.delta.x * view.scale, y: drag.delta.y * view.scale }
               : { x: 0, y: 0 };
@@ -855,12 +1062,8 @@ export function Viewport2D() {
               }
               stroke="#0d1117"
               strokeWidth={1}
-              style={{ cursor: tool === "select" ? "pointer" : "default" }}
-              onPointerDown={(event) => {
-                if (tool !== "select" || event.button !== 0) return;
-                event.stopPropagation();
-                select([marker.id], event.shiftKey);
-              }}
+              style={{ cursor: tool === "select" ? "move" : "default" }}
+              onPointerDown={(event) => startMoveDrag(event, marker.id)}
             />
           );
         })}
@@ -869,7 +1072,7 @@ export function Viewport2D() {
         {columns.map((column) => {
           const [baseX, baseY] = toScreen(column.position);
           const offset =
-            drag?.kind === "wall" && drag.ids.includes(column.id)
+            drag?.kind === "move" && drag.ids.includes(column.id)
               ? { x: drag.delta.x * view.scale, y: drag.delta.y * view.scale }
               : { x: 0, y: 0 };
           const cx = baseX + offset.x;
@@ -894,31 +1097,349 @@ export function Viewport2D() {
           );
         })}
 
+        {/* Escaleras */}
+        {stairs.map((stair) => {
+          const isRotating = drag?.kind === "stairRotate" && drag.stairId === stair.id;
+          const rotationDeg = isRotating
+            ? (-drag.currentAngle * 180) / Math.PI
+            : (-stair.rotationY * 180) / Math.PI;
+
+          const isDraggingThis = drag?.kind === "wall" && drag.ids.includes(stair.id);
+          const offset = isDraggingThis
+            ? { x: drag.delta.x * view.scale, y: drag.delta.y * view.scale }
+            : { x: 0, y: 0 };
+
+          const [baseX, baseY] = toScreen(stair.position);
+          const cx = baseX + offset.x;
+          const cy = baseY + offset.y;
+          const widthPx = Math.max(8, stair.width * view.scale);
+          const stepLengthPx = Math.max(3, stair.tread * view.scale);
+          const stepsCount = Math.max(2, Math.round(stair.steps));
+          const totalLengthPx = stepsCount * stepLengthPx;
+          const isSelected = selection.has(stair.id);
+          const isHovered = hoveredId === stair.id;
+
+          return (
+            <g
+              key={stair.id}
+              transform={`translate(${cx}, ${cy}) rotate(${rotationDeg})`}
+              style={{ cursor: tool === "select" ? "pointer" : "default" }}
+              onPointerEnter={() => setHovered(stair.id)}
+              onPointerLeave={() => setHovered(null)}
+              onPointerDown={(event) => {
+                if (tool !== "select" || event.button !== 0) return;
+                event.stopPropagation();
+                const wasSelected = selection.has(stair.id);
+                const ids =
+                  wasSelected && selectionList.length > 1
+                    ? [...selectionList]
+                    : [stair.id];
+                if (!wasSelected || event.shiftKey) select([stair.id], event.shiftKey);
+                const raw = toWorld(event.clientX, event.clientY);
+                setDrag({
+                  kind: "wall",
+                  wallId: stair.id,
+                  ids,
+                  origin: raw,
+                  delta: { x: 0, y: 0 },
+                });
+              }}
+            >
+              {/* Contorno de la escalera */}
+              <rect
+                x={-widthPx / 2}
+                y={0}
+                width={widthPx}
+                height={totalLengthPx}
+                fill={
+                  isSelected
+                    ? "rgba(34, 211, 238, 0.25)"
+                    : isHovered
+                      ? "rgba(125, 211, 252, 0.18)"
+                      : "rgba(39, 53, 70, 0.85)"
+                }
+                stroke={isSelected ? "#22d3ee" : isHovered ? "#7dd3fc" : "#64748b"}
+                strokeWidth={isSelected ? 2 : 1.5}
+                rx={1}
+              />
+
+              {/* Peldaños individuales */}
+              {Array.from({ length: stepsCount - 1 }, (_, i) => {
+                const stepY = (i + 1) * stepLengthPx;
+                return (
+                  <line
+                    key={i}
+                    x1={-widthPx / 2}
+                    y1={stepY}
+                    x2={widthPx / 2}
+                    y2={stepY}
+                    stroke={isSelected ? "#22d3ee" : "#475569"}
+                    strokeWidth={1}
+                  />
+                );
+              })}
+
+              {/* Flecha de dirección / subida (simbología arquitectónica) */}
+              <g className="pointer-events-none" opacity={0.9}>
+                {/* Línea central */}
+                <line
+                  x1={0}
+                  y1={stepLengthPx * 0.5}
+                  x2={0}
+                  y2={totalLengthPx - 8}
+                  stroke={isSelected ? "#22d3ee" : "#38bdf8"}
+                  strokeWidth={1.5}
+                />
+                {/* Círculo de inicio de subida */}
+                <circle
+                  cx={0}
+                  cy={stepLengthPx * 0.5}
+                  r={3}
+                  fill={isSelected ? "#22d3ee" : "#38bdf8"}
+                />
+                {/* Punta de flecha de subida */}
+                <polygon
+                  points={`0,${totalLengthPx - 2} -4,${totalLengthPx - 10} 4,${totalLengthPx - 10}`}
+                  fill={isSelected ? "#22d3ee" : "#38bdf8"}
+                />
+                {/* Texto de subida si hay suficiente escala */}
+                {view.scale > 18 ? (
+                  <text
+                    x={0}
+                    y={totalLengthPx / 2}
+                    textAnchor="middle"
+                    fill={isSelected ? "#22d3ee" : "#94a3b8"}
+                    fontSize={Math.min(10, widthPx * 0.28)}
+                    fontWeight={600}
+                    letterSpacing={1}
+                    transform={`rotate(-90 0 ${totalLengthPx / 2})`}
+                  >
+                    SUBE
+                  </text>
+                ) : null}
+              </g>
+
+              {/* Tiradores interactivos para mover de los lados y rotar en modo Selección */}
+              {tool === "select" && (isSelected || isHovered) ? (
+                <g className="stair-handles">
+                  {/* Guía visual del eje lateral */}
+                  <line
+                    x1={-widthPx / 2 - 12}
+                    y1={totalLengthPx / 2}
+                    x2={widthPx / 2 + 12}
+                    y2={totalLengthPx / 2}
+                    stroke="#22d3ee"
+                    strokeWidth={1}
+                    strokeDasharray="3 3"
+                    opacity={0.8}
+                  />
+
+                  {/* Tirador Lado Izquierdo */}
+                  <g
+                    transform={`translate(${-widthPx / 2}, ${totalLengthPx / 2})`}
+                    style={{ cursor: "ew-resize" }}
+                    onPointerDown={(event) => {
+                      if (event.button !== 0) return;
+                      event.stopPropagation();
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                      if (!isSelected || event.shiftKey) select([stair.id], event.shiftKey);
+                      const raw = toWorld(event.clientX, event.clientY);
+                      setDrag({
+                        kind: "wall",
+                        wallId: stair.id,
+                        ids: [stair.id],
+                        origin: raw,
+                        delta: { x: 0, y: 0 },
+                      });
+                    }}
+                  >
+                    <circle r={6} fill="#0b1620" stroke="#22d3ee" strokeWidth={2} />
+                    <path
+                      d="M-3,0 L-1,-2 M-3,0 L-1,2"
+                      stroke="#22d3ee"
+                      strokeWidth={1.5}
+                      fill="none"
+                    />
+                  </g>
+
+                  {/* Tirador Lado Derecho */}
+                  <g
+                    transform={`translate(${widthPx / 2}, ${totalLengthPx / 2})`}
+                    style={{ cursor: "ew-resize" }}
+                    onPointerDown={(event) => {
+                      if (event.button !== 0) return;
+                      event.stopPropagation();
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                      if (!isSelected || event.shiftKey) select([stair.id], event.shiftKey);
+                      const raw = toWorld(event.clientX, event.clientY);
+                      setDrag({
+                        kind: "wall",
+                        wallId: stair.id,
+                        ids: [stair.id],
+                        origin: raw,
+                        delta: { x: 0, y: 0 },
+                      });
+                    }}
+                  >
+                    <circle r={6} fill="#0b1620" stroke="#22d3ee" strokeWidth={2} />
+                    <path
+                      d="M3,0 L1,-2 M3,0 L1,2"
+                      stroke="#22d3ee"
+                      strokeWidth={1.5}
+                      fill="none"
+                    />
+                  </g>
+
+                  {/* Tirador Superior / Inicio */}
+                  <circle
+                    cx={0}
+                    cy={0}
+                    r={5}
+                    fill="#0b1620"
+                    stroke="#22d3ee"
+                    strokeWidth={1.5}
+                    style={{ cursor: "ns-resize" }}
+                    onPointerDown={(event) => {
+                      if (event.button !== 0) return;
+                      event.stopPropagation();
+                      if (!isSelected || event.shiftKey) select([stair.id], event.shiftKey);
+                      const raw = toWorld(event.clientX, event.clientY);
+                      setDrag({
+                        kind: "wall",
+                        wallId: stair.id,
+                        ids: [stair.id],
+                        origin: raw,
+                        delta: { x: 0, y: 0 },
+                      });
+                    }}
+                  />
+
+                  {/* Tirador Inferior / Fin */}
+                  <circle
+                    cx={0}
+                    cy={totalLengthPx}
+                    r={5}
+                    fill="#0b1620"
+                    stroke="#22d3ee"
+                    strokeWidth={1.5}
+                    style={{ cursor: "ns-resize" }}
+                    onPointerDown={(event) => {
+                      if (event.button !== 0) return;
+                      event.stopPropagation();
+                      if (!isSelected || event.shiftKey) select([stair.id], event.shiftKey);
+                      const raw = toWorld(event.clientX, event.clientY);
+                      setDrag({
+                        kind: "wall",
+                        wallId: stair.id,
+                        ids: [stair.id],
+                        origin: raw,
+                        delta: { x: 0, y: 0 },
+                      });
+                    }}
+                  />
+
+                  {/* Tirador de Giro 2D (nodo superior con linea discontinuada) */}
+                  <g
+                    transform="translate(0, -22)"
+                    style={{ cursor: "grab" }}
+                    onPointerDown={(event) => {
+                      if (event.button !== 0) return;
+                      event.stopPropagation();
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                      if (!isSelected || event.shiftKey) select([stair.id], event.shiftKey);
+                      const raw = toWorld(event.clientX, event.clientY);
+                      const vx = raw.x - stair.position.x;
+                      const vy = raw.y - stair.position.y;
+                      const currentAngle = Math.atan2(vx, vy);
+                      setDrag({
+                        kind: "stairRotate",
+                        stairId: stair.id,
+                        origin: stair.position,
+                        startAngle: stair.rotationY,
+                        currentAngle,
+                      });
+                    }}
+                  >
+                    <line
+                      x1={0}
+                      y1={22}
+                      x2={0}
+                      y2={6}
+                      stroke="#22d3ee"
+                      strokeWidth={1.5}
+                      strokeDasharray="2 2"
+                    />
+                    <circle r={6} fill="#22d3ee" stroke="#0b1620" strokeWidth={1.5} />
+                    <path
+                      d="M-3,-1 A3,3 0 1,1 3,-1"
+                      fill="none"
+                      stroke="#0b1620"
+                      strokeWidth={1.2}
+                    />
+                  </g>
+                </g>
+              ) : null}
+
+              {/* Indicador de cota/desplazamiento en tiempo real al arrastrar de los lados */}
+              {isDraggingThis && (drag.delta.x !== 0 || drag.delta.y !== 0) ? (
+                <g className="pointer-events-none" transform={`rotate(${-rotationDeg})`}>
+                  <rect
+                    x={widthPx / 2 + 10}
+                    y={totalLengthPx / 2 - 12}
+                    width={70}
+                    height={20}
+                    rx={4}
+                    fill="rgba(11, 22, 32, 0.9)"
+                    stroke="#22d3ee"
+                    strokeWidth={1}
+                  />
+                  <text
+                    x={widthPx / 2 + 45}
+                    y={totalLengthPx / 2 + 2}
+                    textAnchor="middle"
+                    fill="#22d3ee"
+                    fontSize={10}
+                    fontWeight={600}
+                  >
+                    {formatLength(Math.hypot(drag.delta.x, drag.delta.y), units)}
+                  </text>
+                </g>
+              ) : null}
+            </g>
+          );
+        })}
+
         {/* Mobiliario */}
-        {furniture.map((item) => {
-          const [baseX, baseY] = toScreen({ x: item.position.x, y: item.position.z });
+        {furnitureFootprints.map(({ item, footprint }) => {
+          const [baseX, baseY] = toScreen(footprint.center);
           const offset =
-            drag?.kind === "wall" && drag.ids.includes(item.id)
+            drag?.kind === "move" && drag.ids.includes(item.id)
               ? { x: drag.delta.x * view.scale, y: drag.delta.y * view.scale }
               : { x: 0, y: 0 };
           const cx = baseX + offset.x;
           const cy = baseY + offset.y;
-          const size = Math.max(6, 0.6 * view.scale);
+          const width = Math.max(6, footprint.size.x * view.scale);
+          const height = Math.max(6, footprint.size.z * view.scale);
+          const isSelected = selection.has(item.id);
           return (
             <rect
               key={item.id}
-              x={cx - size / 2}
-              y={cy - size / 2}
-              width={size}
-              height={size}
+              x={cx - width / 2}
+              y={cy - height / 2}
+              width={width}
+              height={height}
               rx={2}
-              fill={selection.has(item.id) ? "#22d3ee" : "#5f6b7a"}
+              transform={`rotate(${footprint.rotationDeg} ${cx} ${cy})`}
+              fill={isSelected ? "#22d3ee" : footprint.color}
               opacity={0.85}
-              style={{ cursor: tool === "select" ? "pointer" : "default" }}
+              style={{ cursor: tool === "select" ? "move" : "default" }}
               onPointerDown={(event) => {
-                if (tool !== "select" || event.button !== 0) return;
-                event.stopPropagation();
-                select([item.id], event.shiftKey);
+                if (tool === "paint" && event.button === 0) {
+                  event.stopPropagation();
+                  paintMaterial(item.id);
+                  return;
+                }
+                startMoveDrag(event, item.id);
               }}
             />
           );
@@ -1061,6 +1582,35 @@ export function Viewport2D() {
           />
         ) : null}
       </svg>
+
+      {/* Cartel de ayuda cuando Vista completa esta activa */}
+      {activeFloorId === null ? (
+        <div className="absolute inset-0 z-20 flex flex-col items-center justify-center bg-[#0d1117]/85 p-6 backdrop-blur-sm text-center">
+          <div className="flex max-w-sm flex-col items-center gap-3 rounded-xl border border-line bg-surface/95 p-6 shadow-2xl">
+            <div className="grid size-12 place-items-center rounded-full bg-accent/15 text-accent">
+              <Layers className="size-6" aria-hidden />
+            </div>
+            <h3 className="text-base font-semibold text-ink">
+              Vista completa seleccionada
+            </h3>
+            <p className="text-xs text-ink-subtle leading-relaxed">
+              Selecciona un piso para poder ver y editar la gráfica en 2D.
+            </p>
+            <div className="mt-2 flex flex-wrap justify-center gap-2">
+              {scene.floors.map((floor) => (
+                <button
+                  key={floor.id}
+                  type="button"
+                  onClick={() => setActiveFloor(floor.id)}
+                  className="rounded-md border border-line bg-surface-2 px-3 py-1.5 text-xs font-medium text-ink transition-colors hover:border-accent hover:bg-accent/15 hover:text-accent"
+                >
+                  {floor.name}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* Indicadores del encuadre */}
       <div className="pointer-events-none absolute bottom-2 left-2 flex items-center gap-3 rounded border border-line bg-surface/85 px-2 py-1 font-mono text-[10px] text-ink-subtle">

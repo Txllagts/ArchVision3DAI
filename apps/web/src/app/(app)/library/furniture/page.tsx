@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useState, useMemo } from "react";
@@ -7,7 +8,13 @@ import {
   FurnitureCatalogItem,
   FurnitureCategory,
 } from "@archvision/shared";
-import { Search, Sofa, Copy, Check, Filter, MoveHorizontal, MoveVertical, Box } from "lucide-react";
+import {
+  Search, Sofa, Copy, Check, Filter, MoveHorizontal, MoveVertical, Box,
+  Armchair, BedDouble, BedSingle, Coffee, Tv, CookingPot, ChefHat, Refrigerator,
+  Flame, Utensils, DoorClosed, Toilet, Droplets, ShowerHead, LampDesk, Library,
+  Lamp, LampCeiling, Sprout, RectangleHorizontal, TreePine,
+} from "lucide-react";
+import type { LucideIcon } from "lucide-react";
 import { Panel } from "@/components/ui/surface";
 import { Button } from "@/components/ui/button";
 
@@ -111,6 +118,53 @@ export default function FurnitureLibraryPage() {
   );
 }
 
+const FURNITURE_ICONS: Record<string, LucideIcon> = {
+  "sofa-3-seat": Sofa,
+  "sofa-2-seat": Sofa,
+  "armchair": Armchair,
+  "coffee-table": Coffee,
+  "tv-unit": Tv,
+  "kitchen-counter": CookingPot,
+  "kitchen-island": ChefHat,
+  "fridge": Refrigerator,
+  "stove": Flame,
+  "dining-table-6": Utensils,
+  "dining-table-4": Utensils,
+  "chair": Armchair,
+  "bed-queen": BedDouble,
+  "bed-double": BedDouble,
+  "bed-single": BedSingle,
+  "nightstand": Lamp,
+  "wardrobe": DoorClosed,
+  "toilet": Toilet,
+  "sink": Droplets,
+  "shower": ShowerHead,
+  "desk": LampDesk,
+  "office-chair": Armchair,
+  "bookshelf": Library,
+  "planter": Sprout,
+  "rug": RectangleHorizontal,
+  "outdoor-table": TreePine,
+  "pendant-lamp": LampCeiling,
+};
+
+const CATEGORY_ICONS: Record<FurnitureCategory, LucideIcon> = {
+  living: Sofa,
+  kitchen: CookingPot,
+  dining: Utensils,
+  bedroom: BedDouble,
+  bathroom: ShowerHead,
+  office: LampDesk,
+  outdoor: TreePine,
+  lighting: Lamp,
+  decor: Sprout,
+  appliance: Refrigerator,
+};
+
+function iconFor(item: FurnitureCatalogItem): LucideIcon {
+  return FURNITURE_ICONS[item.id] ?? CATEGORY_ICONS[item.category] ?? Box;
+}
+
 function FurnitureCard({
   item,
   isCopied,
@@ -121,6 +175,7 @@ function FurnitureCard({
   onCopy: () => void;
 }) {
   const categoryLabel = FURNITURE_CATEGORY_LABELS[item.category] ?? item.category;
+  const Icon = iconFor(item);
 
   return (
     <Panel className="group relative overflow-hidden transition-all hover:border-accent/50 hover:shadow-sm">
@@ -129,7 +184,7 @@ function FurnitureCard({
           className="flex size-14 items-center justify-center rounded-lg shadow-inner border border-line/40"
           style={{ backgroundColor: item.color }}
         >
-          <Box className="size-7 text-white/90 drop-shadow" />
+          <Icon className="size-7 text-white/90 drop-shadow" />
         </div>
         <button
           onClick={onCopy}
@@ -176,3 +231,4 @@ function FurnitureCard({
     </Panel>
   );
 }
+ 

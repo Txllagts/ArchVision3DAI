@@ -6,6 +6,7 @@ import type {
   Column,
   Door,
   FurnitureInstance,
+  ImportedModel,
   Opening,
   Roof,
   SceneCommand,
@@ -52,6 +53,12 @@ export type ToolId =
 export type ViewMode = "2d" | "3d" | "split";
 
 export type SaveStatus = "saved" | "dirty" | "saving" | "error" | "conflict";
+
+/** Conflicto de version pendiente de decision del usuario (dialogo abierto). */
+export interface SceneConflictState {
+  serverScene: SceneDocument;
+  serverRevision: number;
+}
 
 /** Comandos que pueden cambiar los recintos cerrados. */
 const STRUCTURAL_COMMANDS = new Set([
@@ -149,14 +156,18 @@ interface EditorState {
   showGrid: boolean;
 
   saveStatus: SaveStatus;
+  saveError: string | null;
   lastSavedAt: number | null;
   message: { kind: "error" | "info"; text: string } | null;
+  /** Conflicto de version esperando al usuario; los cambios locales siguen aqui. */
+  conflict: SceneConflictState | null;
 
   /** Solicitud de encuadre pendiente para el visor 3D. */
   pendingView: StandardView | "fit" | null;
 
   measure: MeasureState;
   paletteOpen: boolean;
+  exportOpen: boolean;
 
   initialize: (payload: {
     projectId: string;
@@ -174,7 +185,7 @@ interface EditorState {
 
   setTool: (tool: ToolId) => void;
   setViewMode: (mode: ViewMode) => void;
-  setActiveFloor: (floorId: string) => void;
+  setActiveFloor: (floorId: string | null) => void;
   setFurnitureCatalogId: (catalogId: string) => void;
   setActiveMaterialId: (materialId: string | null) => void;
   setMaterialsOpen: (open: boolean) => void;
@@ -192,6 +203,7 @@ interface EditorState {
   setProposal: (proposal: ProposedWall[] | null) => void;
   toggleProposal: (index: number) => void;
   applyProposal: () => number;
+  addImportedModel: (model: Omit<ImportedModel, "id" | "source"> & { id?: string }) => void;
 
   select: (ids: string[], additive?: boolean) => void;
   toggleSelection: (id: string) => void;
@@ -205,11 +217,18 @@ interface EditorState {
   requestView: (view: StandardView | "fit" | null) => void;
   setMeasure: (measure: MeasureState) => void;
   setPaletteOpen: (open: boolean) => void;
+  setExportOpen: (open: boolean) => void;
 
   setSaveStatus: (status: SaveStatus) => void;
   markSaved: (revision: number) => void;
   setMessage: (message: { kind: "error" | "info"; text: string } | null) => void;
   replaceScene: (scene: SceneDocument, revision: number) => void;
+  /** Abre o cierra el dialogo de conflicto de version. */
+  setConflict: (conflict: SceneConflictState | null) => void;
+  /** Aplica una fusion de cambios ajenos no solapados con la revision del servidor. */
+  mergeScene: (scene: SceneDocument, revision: number) => void;
+  /** Adopta la revision mas reciente conocida del servidor sin tocar la escena. */
+  adoptRevision: (revision: number) => void;
 }
 
 const EMPTY_SCENE: SceneDocument = {
@@ -226,6 +245,7 @@ const EMPTY_SCENE: SceneDocument = {
   slabs: [],
   rooms: [],
   furniture: [],
+  importedModels: [],
   materials: [],
   lights: [],
   cameras: [],
@@ -274,12 +294,15 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   showGrid: true,
 
   saveStatus: "saved",
+  saveError: null,
   lastSavedAt: null,
   message: null,
+  conflict: null,
 
   pendingView: null,
   measure: { start: null, end: null },
   paletteOpen: false,
+  exportOpen: false,
 
   initialize: ({ projectId, projectName, units, scene, revision }) => {
     // La deteccion de habitaciones se ejecuta al abrir para que los proyectos
@@ -297,8 +320,10 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       hoveredId: null,
       activeFloorId: prepared.activeFloorId ?? prepared.floors[0]?.id ?? null,
       saveStatus: "saved",
+      saveError: null,
       lastSavedAt: Date.now(),
       message: null,
+      conflict: null,
       measure: { start: null, end: null },
     });
   },
@@ -485,6 +510,26 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
 
     set({ proposal: null });
     return created;
+  },
+
+  addImportedModel: (model) => {
+    const { activeFloorId, dispatch, scene } = get();
+    const floorId = model.floorId || activeFloorId || scene.floors[0]?.id;
+    if (!floorId) {
+      set({ message: { kind: "error", text: "No hay un nivel activo para importar el modelo" } });
+      return;
+    }
+    dispatch({
+      type: "CREATE_IMPORTED_MODEL",
+      origin: "import",
+      floorId,
+      fileId: model.fileId,
+      name: model.name,
+      url: model.url,
+      position: model.position,
+      rotation: model.rotation,
+      scale: model.scale,
+    });
   },
 
   select: (ids, additive = false) =>
@@ -757,10 +802,16 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
   requestView: (pendingView) => set({ pendingView }),
   setMeasure: (measure) => set({ measure }),
   setPaletteOpen: (paletteOpen) => set({ paletteOpen }),
+  setExportOpen: (exportOpen) => set({ exportOpen }),
 
   setSaveStatus: (saveStatus) => set({ saveStatus }),
   markSaved: (revision) =>
-    set({ revision, saveStatus: "saved", lastSavedAt: Date.now() }),
+    set({
+      revision,
+      saveStatus: "saved",
+      saveError: null,
+      lastSavedAt: Date.now(),
+    }),
   setMessage: (message) => set({ message }),
   replaceScene: (scene, revision) =>
     set({
@@ -770,9 +821,29 @@ export const useEditorStore = create<EditorState>()((set, get) => ({
       future: [],
       selection: [],
       saveStatus: "saved",
+      saveError: null,
       lastSavedAt: Date.now(),
+      conflict: null,
     }),
+  setConflict: (conflict) => set({ conflict }),
+  mergeScene: (scene, revision) =>
+    set((state) => ({
+      scene: withRecomputedRooms(scene),
+      revision,
+      past: [...state.past, state.scene].slice(-HISTORY_LIMIT),
+      future: [],
+      selection: [],
+      saveStatus: "dirty",
+      saveError: null,
+      conflict: null,
+    })),
+  adoptRevision: (revision) =>
+    set((state) => ({ revision: Math.max(state.revision, revision) })),
 }));
+
+export function hasUnsavedChanges(state: { saveStatus: SaveStatus }): boolean {
+  return state.saveStatus !== "saved";
+}
 
 /** Nivel activo resuelto, con reserva al primero disponible. */
 export function useActiveFloor() {
