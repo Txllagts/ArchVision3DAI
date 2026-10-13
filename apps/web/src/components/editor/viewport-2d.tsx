@@ -156,6 +156,7 @@ function boundsOfScene(scene: SceneDocument): { min: Vector2; max: Vector2 } {
 
 export function Viewport2D() {
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const cachedRectRef = useRef<DOMRect | null>(null);
   const [size, setSize] = useState({ width: 800, height: 600 });
   const [view, setView] = useState<ViewTransform>({
     center: { x: 0, y: 0 },
@@ -311,7 +312,7 @@ export function Viewport2D() {
 
   const toWorld = useCallback(
     (clientX: number, clientY: number): Vector2 => {
-      const rect = containerRef.current?.getBoundingClientRect();
+      const rect = cachedRectRef.current ?? containerRef.current?.getBoundingClientRect();
       const x = clientX - (rect?.left ?? 0);
       const y = clientY - (rect?.top ?? 0);
       return {
@@ -351,6 +352,7 @@ export function Viewport2D() {
     (event: ReactPointerEvent<SVGElement>, id: string) => {
       if (tool !== "select" || event.button !== 0) return;
       event.stopPropagation();
+      cachedRectRef.current = containerRef.current?.getBoundingClientRect() ?? null;
       event.currentTarget.setPointerCapture(event.pointerId);
       const wasSelected = selection.has(id);
       const ids =
@@ -367,6 +369,7 @@ export function Viewport2D() {
   const handlePointerDown = useCallback(
     (event: ReactPointerEvent<SVGSVGElement>) => {
       if (!activeFloor) return;
+      cachedRectRef.current = containerRef.current?.getBoundingClientRect() ?? null;
       const raw = toWorld(event.clientX, event.clientY);
 
       // Boton central o secundario: encuadre, o herramienta pan.
@@ -485,9 +488,11 @@ export function Viewport2D() {
   const handlePointerMove = useCallback(
     (event: ReactPointerEvent<SVGSVGElement>) => {
       const raw = toWorld(event.clientX, event.clientY);
-      setCursor(applySnap(raw));
 
-      if (!drag) return;
+      if (!drag) {
+        setCursor(applySnap(raw));
+        return;
+      }
 
       if (drag.kind === "pan") {
         setView((current) => ({
@@ -533,6 +538,7 @@ export function Viewport2D() {
   );
 
   const handlePointerUp = useCallback((event: ReactPointerEvent<SVGSVGElement>) => {
+    cachedRectRef.current = null;
     if (!drag) return;
 
     if (drag.kind === "node") {
@@ -1104,7 +1110,7 @@ export function Viewport2D() {
             ? (-drag.currentAngle * 180) / Math.PI
             : (-stair.rotationY * 180) / Math.PI;
 
-          const isDraggingThis = drag?.kind === "wall" && drag.ids.includes(stair.id);
+          const isDraggingThis = drag?.kind === "move" && drag.ids.includes(stair.id);
           const offset = isDraggingThis
             ? { x: drag.delta.x * view.scale, y: drag.delta.y * view.scale }
             : { x: 0, y: 0 };
@@ -1129,6 +1135,7 @@ export function Viewport2D() {
               onPointerDown={(event) => {
                 if (tool !== "select" || event.button !== 0) return;
                 event.stopPropagation();
+                cachedRectRef.current = containerRef.current?.getBoundingClientRect() ?? null;
                 const wasSelected = selection.has(stair.id);
                 const ids =
                   wasSelected && selectionList.length > 1
@@ -1137,8 +1144,7 @@ export function Viewport2D() {
                 if (!wasSelected || event.shiftKey) select([stair.id], event.shiftKey);
                 const raw = toWorld(event.clientX, event.clientY);
                 setDrag({
-                  kind: "wall",
-                  wallId: stair.id,
+                  kind: "move",
                   ids,
                   origin: raw,
                   delta: { x: 0, y: 0 },
@@ -1241,12 +1247,12 @@ export function Viewport2D() {
                     onPointerDown={(event) => {
                       if (event.button !== 0) return;
                       event.stopPropagation();
+                      cachedRectRef.current = containerRef.current?.getBoundingClientRect() ?? null;
                       event.currentTarget.setPointerCapture(event.pointerId);
                       if (!isSelected || event.shiftKey) select([stair.id], event.shiftKey);
                       const raw = toWorld(event.clientX, event.clientY);
                       setDrag({
-                        kind: "wall",
-                        wallId: stair.id,
+                        kind: "move",
                         ids: [stair.id],
                         origin: raw,
                         delta: { x: 0, y: 0 },
@@ -1269,12 +1275,12 @@ export function Viewport2D() {
                     onPointerDown={(event) => {
                       if (event.button !== 0) return;
                       event.stopPropagation();
+                      cachedRectRef.current = containerRef.current?.getBoundingClientRect() ?? null;
                       event.currentTarget.setPointerCapture(event.pointerId);
                       if (!isSelected || event.shiftKey) select([stair.id], event.shiftKey);
                       const raw = toWorld(event.clientX, event.clientY);
                       setDrag({
-                        kind: "wall",
-                        wallId: stair.id,
+                        kind: "move",
                         ids: [stair.id],
                         origin: raw,
                         delta: { x: 0, y: 0 },
@@ -1302,11 +1308,11 @@ export function Viewport2D() {
                     onPointerDown={(event) => {
                       if (event.button !== 0) return;
                       event.stopPropagation();
+                      cachedRectRef.current = containerRef.current?.getBoundingClientRect() ?? null;
                       if (!isSelected || event.shiftKey) select([stair.id], event.shiftKey);
                       const raw = toWorld(event.clientX, event.clientY);
                       setDrag({
-                        kind: "wall",
-                        wallId: stair.id,
+                        kind: "move",
                         ids: [stair.id],
                         origin: raw,
                         delta: { x: 0, y: 0 },
@@ -1326,11 +1332,11 @@ export function Viewport2D() {
                     onPointerDown={(event) => {
                       if (event.button !== 0) return;
                       event.stopPropagation();
+                      cachedRectRef.current = containerRef.current?.getBoundingClientRect() ?? null;
                       if (!isSelected || event.shiftKey) select([stair.id], event.shiftKey);
                       const raw = toWorld(event.clientX, event.clientY);
                       setDrag({
-                        kind: "wall",
-                        wallId: stair.id,
+                        kind: "move",
                         ids: [stair.id],
                         origin: raw,
                         delta: { x: 0, y: 0 },
