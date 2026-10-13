@@ -20,12 +20,14 @@ import {
   Save,
   Sparkles,
   Square,
+  Sun,
   Trash2,
   Undo2,
 } from "lucide-react";
 import { Logo } from "@/components/brand/logo";
 import { Button } from "@/components/ui/button";
 import { useEditorStore, useHistoryFlags } from "@/lib/editor/store";
+import { useSunStudyStore } from "@archvision/three-engine";
 import { cn } from "@/lib/utils";
 
 /** Barra superior: proyecto, historial, niveles, vistas y guardado. */
@@ -56,6 +58,8 @@ export function EditorTopBar({ onSave }: { onSave: () => void }) {
   const setExportOpen = useEditorStore((state) => state.setExportOpen);
   const { canUndo, canRedo } = useHistoryFlags();
   const [roofOpen, setRoofOpen] = useState(false);
+  const sunPanelOpen = useSunStudyStore((s) => s.sunPanelOpen);
+  const setSunPanelOpen = useSunStudyStore((s) => s.setSunPanelOpen);
 
   const statusLabel: Record<typeof saveStatus, string> = {
     saved: "Guardado",
@@ -254,6 +258,17 @@ export function EditorTopBar({ onSave }: { onSave: () => void }) {
       >
         <Sparkles className="size-4" aria-hidden />
         Asistente
+      </Button>
+
+      <Button
+        variant="ghost"
+        size="sm"
+        title="Estudio solar y simulacion de sombras"
+        onClick={() => setSunPanelOpen(!sunPanelOpen)}
+        className={sunPanelOpen ? "text-accent" : undefined}
+      >
+        <Sun className="size-4" aria-hidden />
+        Sol
       </Button>
 
       <div className="ml-auto flex items-center gap-1">

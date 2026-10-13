@@ -30,6 +30,14 @@ import { cn } from "@/lib/utils";
 
 type ExportStatus = "idle" | "exporting" | "error" | "success";
 
+type PngResolution = "screen" | "1080p" | "4k";
+
+const RESOLUTION_OPTIONS: ReadonlyArray<{ value: PngResolution; label: string }> = [
+  { value: "screen", label: "Pantalla (resolución del dispositivo)" },
+  { value: "1080p", label: "Full HD (1920×1080)" },
+  { value: "4k", label: "4K UHD (3840×2160)" },
+];
+
 const FORMAT_OPTIONS: ReadonlyArray<{ value: ExportFormat; label: string }> = [
   { value: "glb", label: "GLB (glTF binario)" },
   { value: "obj", label: "OBJ + MTL (ZIP)" },
@@ -49,7 +57,7 @@ const FORMAT_HINTS: Record<ExportFormat, string> = {
   obj: "ZIP con modelo.obj, materiales modelo.mtl y texturas en textures/.",
   stl: "Solo geometria: STL ignora materiales, colores y texturas.",
   dxf: "Planta 2D con capas de muros, vanos, cotas y textos; las cotas se generan al exportar.",
-  png: "Imagen del visor 3D tal como se ve ahora; la resolucion es la del dispositivo.",
+  png: "Imagen del visor 3D; elige la resolucion en el selector (pantalla o alta resolucion).",
 };
 
 const FOCUSABLE_SELECTOR =
@@ -61,10 +69,16 @@ export function ExportModal() {
 
   const [format, setFormat] = useState<ExportFormat>("glb");
   const [unit, setUnit] = useState<ExportUnit>("m");
+  const [resolution, setResolution] = useState<PngResolution>("screen");
   const [includeFurniture, setIncludeFurniture] = useState(true);
   const [includeMaterials, setIncludeMaterials] = useState(true);
   const [status, setStatus] = useState<ExportStatus>("idle");
   const [error, setError] = useState<string | null>(null);
+
+  const projectName = useEditorStore((state) => state.projectName);
+  // Marca que hay un render de alta resolucion en vuelo; lo apaga el evento
+  // `render-capture-done` que emite RenderExporter.
+  const awaitingCapture = useRef(false);
 
   const panelRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
@@ -87,9 +101,34 @@ export function ExportModal() {
     if (open) {
       setStatus("idle");
       setError(null);
+      awaitingCapture.current = false;
       panelRef.current?.focus();
     }
   }, [open]);
+
+  // Alta resolucion: RenderExporter confirma cuando termina (o falla). Sin esta
+  // escucha el spinner se quedaria girando para siempre.
+  useEffect(() => {
+    const handler = (event: Event) => {
+      if (!awaitingCapture.current) return;
+      awaitingCapture.current = false;
+      const detail = (
+        event as CustomEvent<{ success: boolean; message?: string }>
+      ).detail;
+      if (detail?.success) {
+        setStatus("success");
+        window.setTimeout(() => {
+          setStatus("idle");
+          setOpen(false);
+        }, 900);
+      } else {
+        setStatus("error");
+        setError(detail?.message ?? "No se pudo generar el render");
+      }
+    };
+    window.addEventListener("render-capture-done", handler);
+    return () => window.removeEventListener("render-capture-done", handler);
+  }, [setOpen]);
 
   const close = () => {
     if (!busy) setOpen(false);
@@ -129,6 +168,19 @@ export function ExportModal() {
     if (busy) return;
     setStatus("exporting");
     setError(null);
+
+    if (format === "png" && resolution !== "screen") {
+      awaitingCapture.current = true;
+      // Cede el turno para que el spinner se pinte antes del trabajo pesado.
+      await new Promise<void>((resolve) => window.setTimeout(resolve, 50));
+      window.dispatchEvent(
+        new CustomEvent("render-capture", {
+          detail: { resolution, projectName },
+        }),
+      );
+      // El listener de `render-capture-done` cierra el estado (exito o error).
+      return;
+    }
 
     // Cede el turno del hilo para que el spinner se pinte antes del trabajo
     // pesado de clonado y serializacion.
@@ -225,6 +277,23 @@ export function ExportModal() {
             }
             disabled={busy || !unitRelevant}
           />
+
+          {format === "png" ? (
+            <SelectField
+              label="Resolución"
+              value={resolution}
+              onChange={(event) =>
+                setResolution(event.target.value as PngResolution)
+              }
+              options={RESOLUTION_OPTIONS}
+              hint={
+                resolution === "screen"
+                  ? "Captura a la resolución del dispositivo, sin tocar la escena."
+                  : "Render de alta resolución con postproceso (N8AO + Bloom)."
+              }
+              disabled={busy}
+            />
+          ) : null}
 
           <label
             className={cn(

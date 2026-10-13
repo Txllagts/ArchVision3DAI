@@ -1,4 +1,7 @@
 import type { SceneEnvironment } from "@archvision/types";
+import { getPosition } from "suncalc";
+
+const DEG_TO_RAD = Math.PI / 180;
 
 /**
  * Ambientes de iluminacion.
@@ -79,45 +82,45 @@ export function environmentPreset(
   return PRESETS[environment.sky] ?? PRESETS.clear;
 }
 
-/**
- * Direccion del sol para una ubicacion, fecha y hora.
- *
- * Aproximacion astronomica suficiente para el estudio de sombras del editor:
- * declinacion solar por dia del ano y angulo horario local. No sustituye a un
- * calculo de eficiencia energetica certificado.
- */
+export interface SunPosition {
+  /** Azimut en grados, base norte, sentido horario (0 = N, 90 = E, 180 = S). */
+  azimuth: number;
+  /** Altura sobre el horizonte en grados (negativa de noche). */
+  altitude: number;
+  /** Direccion normalizada en coordenadas de mundo (norte = -Z, Y arriba). */
+  direction: [number, number, number];
+}
+
+export function sunPositionFor(params: {
+  latitude: number;
+  longitude: number;
+  date: Date;
+  northAngleDeg?: number;
+}): SunPosition {
+  const position = getPosition(params.date, params.latitude, params.longitude);
+  const altitude = position.altitude;
+  const north = params.northAngleDeg ?? 0;
+
+  // Compass (norte = -Z) -> esfericas de Three.js: theta = pi - (azimut + giro).
+  const phi = Math.PI / 2 - altitude * DEG_TO_RAD;
+  const theta = Math.PI - (position.azimuth + north) * DEG_TO_RAD;
+
+  const sinPhi = Math.sin(phi);
+  const direction: [number, number, number] = [
+    sinPhi * Math.sin(theta),
+    Math.cos(phi),
+    sinPhi * Math.cos(theta),
+  ];
+
+  return { azimuth: position.azimuth, altitude, direction };
+}
+
 export function sunDirectionFor(params: {
   latitude: number;
   longitude: number;
   date: Date;
   northAngleDeg?: number;
 }): [number, number, number] {
-  const { latitude, date } = params;
-  const dayOfYear = Math.floor(
-    (date.getTime() - new Date(date.getFullYear(), 0, 0).getTime()) / 86_400_000,
-  );
-
-  const declination =
-    23.45 * Math.sin(((2 * Math.PI) / 365) * (dayOfYear - 81)) * (Math.PI / 180);
-  const hours = date.getHours() + date.getMinutes() / 60;
-  const hourAngle = ((hours - 12) * 15 * Math.PI) / 180;
-  const lat = (latitude * Math.PI) / 180;
-
-  const altitude = Math.asin(
-    Math.sin(lat) * Math.sin(declination) +
-      Math.cos(lat) * Math.cos(declination) * Math.cos(hourAngle),
-  );
-  const azimuth = Math.atan2(
-    -Math.sin(hourAngle),
-    Math.tan(declination) * Math.cos(lat) - Math.sin(lat) * Math.cos(hourAngle),
-  );
-
-  const north = ((params.northAngleDeg ?? 0) * Math.PI) / 180;
-  const corrected = azimuth + north;
-
-  return [
-    Math.cos(altitude) * Math.sin(corrected),
-    Math.max(0.02, Math.sin(altitude)),
-    Math.cos(altitude) * Math.cos(corrected),
-  ];
+  const { direction } = sunPositionFor(params);
+  return [direction[0], Math.max(0.02, direction[1]), direction[2]];
 }

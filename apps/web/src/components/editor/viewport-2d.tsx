@@ -1104,7 +1104,7 @@ export function Viewport2D() {
             ? (-drag.currentAngle * 180) / Math.PI
             : (-stair.rotationY * 180) / Math.PI;
 
-          const isDraggingThis = drag?.kind === "wall" && drag.ids.includes(stair.id);
+          const isDraggingThis = drag?.kind === "move" && drag.ids.includes(stair.id);
           const offset = isDraggingThis
             ? { x: drag.delta.x * view.scale, y: drag.delta.y * view.scale }
             : { x: 0, y: 0 };
@@ -1137,8 +1137,7 @@ export function Viewport2D() {
                 if (!wasSelected || event.shiftKey) select([stair.id], event.shiftKey);
                 const raw = toWorld(event.clientX, event.clientY);
                 setDrag({
-                  kind: "wall",
-                  wallId: stair.id,
+                  kind: "move",
                   ids,
                   origin: raw,
                   delta: { x: 0, y: 0 },
@@ -1245,8 +1244,7 @@ export function Viewport2D() {
                       if (!isSelected || event.shiftKey) select([stair.id], event.shiftKey);
                       const raw = toWorld(event.clientX, event.clientY);
                       setDrag({
-                        kind: "wall",
-                        wallId: stair.id,
+                        kind: "move",
                         ids: [stair.id],
                         origin: raw,
                         delta: { x: 0, y: 0 },
@@ -1273,8 +1271,7 @@ export function Viewport2D() {
                       if (!isSelected || event.shiftKey) select([stair.id], event.shiftKey);
                       const raw = toWorld(event.clientX, event.clientY);
                       setDrag({
-                        kind: "wall",
-                        wallId: stair.id,
+                        kind: "move",
                         ids: [stair.id],
                         origin: raw,
                         delta: { x: 0, y: 0 },
@@ -1305,8 +1302,7 @@ export function Viewport2D() {
                       if (!isSelected || event.shiftKey) select([stair.id], event.shiftKey);
                       const raw = toWorld(event.clientX, event.clientY);
                       setDrag({
-                        kind: "wall",
-                        wallId: stair.id,
+                        kind: "move",
                         ids: [stair.id],
                         origin: raw,
                         delta: { x: 0, y: 0 },
@@ -1329,8 +1325,7 @@ export function Viewport2D() {
                       if (!isSelected || event.shiftKey) select([stair.id], event.shiftKey);
                       const raw = toWorld(event.clientX, event.clientY);
                       setDrag({
-                        kind: "wall",
-                        wallId: stair.id,
+                        kind: "move",
                         ids: [stair.id],
                         origin: raw,
                         delta: { x: 0, y: 0 },

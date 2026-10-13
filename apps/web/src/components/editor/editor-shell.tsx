@@ -22,6 +22,8 @@ import { ConflictModal } from "./conflict-modal";
 import { MaterialsPanel } from "./materials-panel";
 import { PlanImportPanel } from "./plan-import-panel";
 import { AssistantPanel } from "./assistant-panel";
+import { SunStudyControls } from "./SunStudyControls";
+import { CompassWidget } from "./CompassWidget";
 import { Viewport2D } from "./viewport-2d";
 import { cn } from "@/lib/utils";
 
@@ -198,7 +200,7 @@ export function EditorShell({
   }, [initialize, project.id, project.name, project.units, scene, revision]);
 
   return (
-    <div className="flex h-screen flex-col overflow-hidden bg-canvas">
+    <div id="editor-root" className="flex h-screen flex-col overflow-hidden bg-canvas">
       <EditorTopBar onSave={() => void saveNow()} />
 
       <div className="flex min-h-0 flex-1">
@@ -240,6 +242,8 @@ export function EditorShell({
           <MaterialsPanel />
           <PlanImportPanel />
           <AssistantPanel onSave={saveNow} />
+          <SunStudyControls />
+          <CompassWidget />
           <OnboardingCard />
           <MessageToast />
         </main>

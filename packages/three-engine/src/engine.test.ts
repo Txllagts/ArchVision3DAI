@@ -3,7 +3,7 @@ import type { SceneDocument, Wall } from "@archvision/types";
 import { createDemoHouseScene } from "@archvision/shared";
 import { findWallAt, snapPoint } from "./snapping";
 import { computeSceneBounds, poseForView } from "./views";
-import { environmentPreset, sunDirectionFor } from "./environment";
+import { environmentPreset, sunPositionFor } from "./environment";
 
 const walls: Wall[] = [
   {
@@ -119,18 +119,23 @@ describe("entorno", () => {
     expect(preset.sunIntensity).toBeGreaterThan(0);
   });
 
-  it("el sol esta mas alto al mediodia que al amanecer", () => {
-    const noon = sunDirectionFor({
-      latitude: 7.1,
-      longitude: -73.1,
-      date: new Date(2026, 5, 21, 12, 0),
-    });
-    const morning = sunDirectionFor({
-      latitude: 7.1,
-      longitude: -73.1,
-      date: new Date(2026, 5, 21, 7, 0),
-    });
+  it("el sol esta mas alto al mediodia solar que al amanecer", () => {
+    const latitude = 7.1;
+    const longitude = -73.1;
+    // suncalc trabaja con instantes UTC: el mediodia solar del sitio no cae a
+    // las 12:00 UTC, sino a 12 - longitud/15.
+    const solarNoonUtcHour = 12 - longitude / 15;
 
-    expect(noon[1]).toBeGreaterThan(morning[1]);
+    const at = (utcHour: number) =>
+      sunPositionFor({
+        latitude,
+        longitude,
+        date: new Date(Date.UTC(2026, 5, 21, utcHour)),
+      });
+
+    const noon = at(solarNoonUtcHour);
+    const morning = at(solarNoonUtcHour - 5);
+
+    expect(noon.altitude).toBeGreaterThan(morning.altitude);
   });
 });

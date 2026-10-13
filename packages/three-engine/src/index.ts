@@ -5,3 +5,6 @@ export * from "./environment";
 export * from "./noise";
 export * from "./patterns";
 export * from "./textures";
+export * from "./SceneEnvironment";
+export * from "./sun-study-store";
+export * from "./SunLight";

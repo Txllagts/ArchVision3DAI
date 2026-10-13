@@ -1,269 +1,215 @@
+/**
+ * Deteccion de tipo de archivo por cabecera (magic bytes).
+ *
+ * El tipo se decide leyendo el contenido real, nunca el `Content-Type` que
+ * declara el cliente ni la extension del nombre. PNG, JPEG y WebP exponen sus
+ * dimensiones en la propia cabecera; PDF, GLB, GLTF, OBJ y STL se reconocen
+ * por su firma o su estructura textual.
+ */
+
+export type SniffMime =
+  | "image/png"
+  | "image/jpeg"
+  | "image/webp"
+  | "application/pdf"
+  | "model/gltf-binary"
+  | "model/gltf+json"
+  | "application/octet-stream";
+
 export interface SniffResult {
-  mime: "image/png" | "image/jpeg" | "image/webp" | "application/pdf" | "model/gltf-binary" | "model/gltf+json" | "application/octet-stream";
-  extension: "png" | "jpg" | "webp" | "pdf" | "glb" | "gltf" | "bin";
+  mime: SniffMime;
+  extension: "png" | "jpg" | "webp" | "pdf" | "glb" | "gltf" | "obj" | "stl";
   width: number | null;
   height: number | null;
 }
 
-export function sniff(data: Uint8Array): SniffResult | null {
-  // GLB detection: magic number "glTF" (0x46546C67) at offset 4
-  // GLB format: 4 bytes magic ("glTF"), 4 bytes version, 4 bytes length, then chunks
-  // Some exporters may have different versions, so check for "glTF" at offset 4
-  if (
-    data.length >= 12 &&
-    data[4] === 0x67 && // 'g'
-    data[5] === 0x6c && // 'l'
-    data[6] === 0x54 && // 'T'
-    data[7] === 0x46    // 'F'
-  ) {
-    return {
-      mime: "model/gltf-binary",
-      extension: "glb",
-      width: null,
-      height: null,
-    };
-  }
-
-  // GLTF (JSON) detection: starts with { and contains "asset":{"version":"2.0"}
-  if (data.length >= 2) {
-    const text = new TextDecoder("utf-8", { fatal: false }).decode(data.subarray(0, Math.min(data.length, 512)));
-    if (text.trimStart().startsWith("{") && text.includes('"asset"') && text.includes('"version"') && text.includes("2.0")) {
-      return {
-        mime: "model/gltf+json",
-        extension: "gltf",
-        width: null,
-        height: null,
-      };
-    }
-  }
-
-  // Fallback for binary GLB files that might not have standard magic bytes
-  // but have .glb extension - we'll detect this by checking for common GLB chunk patterns
-  // Check for JSON chunk (0x4E4F534A = "JSON") or BIN chunk (0x004E4942 = "BIN\0")
-  if (data.length >= 20) {
-    for (let i = 12; i < Math.min(data.length - 8, 100); i++) {
-      // JSON chunk marker
-      if (data[i] === 0x4A && data[i+1] === 0x53 && data[i+2] === 0x4F && data[i+3] === 0x4E) {
-        return {
-          mime: "model/gltf-binary",
-          extension: "glb",
-          width: null,
-          height: null,
-        };
-      }
-      // BIN chunk marker
-      if (data[i] === 0x42 && data[i+1] === 0x49 && data[i+2] === 0x4E && data[i+3] === 0x00) {
-        return {
-          mime: "model/gltf-binary",
-          extension: "glb",
-          width: null,
-          height: null,
-        };
-      }
-    }
-  }
-
-  if (
-    data.length >= 24 &&
-    data[0] === 0x89 &&
-    data[1] === 0x50 &&
-    data[2] === 0x4e &&
-    data[3] === 0x47 &&
-    data[4] === 0x0d &&
-    data[5] === 0x0a &&
-    data[6] === 0x1a &&
-    data[7] === 0x0a
-  ) {
-    return {
-      mime: "image/png",
-      extension: "png",
-      width: readUInt32BE(data, 16),
-      height: readUInt32BE(data, 20),
-    };
-  }
-
-  if (data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) {
-    const size = jpegSize(data);
-    return {
-      mime: "image/jpeg",
-      extension: "jpg",
-      width: size?.width ?? null,
-      height: size?.height ?? null,
-    };
-  }
-
-  if (
-    data.length >= 12 &&
-    ascii(data, 0, 4) === "RIFF" &&
-    ascii(data, 8, 4) === "WEBP"
-  ) {
-    const size = webpSize(data);
-    return {
-      mime: "image/webp",
-      extension: "webp",
-      width: size?.width ?? null,
-      height: size?.height ?? null,
-    };
-  }
-
-  if (data.length >= 5 && ascii(data, 0, 5) === "%PDF-") {
-    return {
-      mime: "application/pdf",
-      extension: "pdf",
-      width: null,
-      height: null,
-    };
-  }
-
-  return null;
-}
-
 function ascii(data: Uint8Array, offset: number, length: number): string {
-  return String.fromCharCode(...data.subarray(offset, offset + length));
+  let value = "";
+  for (let i = 0; i < length; i += 1) {
+    value += String.fromCharCode(data[offset + i] ?? 0);
+  }
+  return value;
 }
 
-function readUInt32BE(data: Uint8Array, offset: number): number {
+function uint16be(data: Uint8Array, offset: number): number {
+  return ((data[offset] ?? 0) << 8) | (data[offset + 1] ?? 0);
+}
+
+function uint16le(data: Uint8Array, offset: number): number {
+  return (data[offset] ?? 0) | ((data[offset + 1] ?? 0) << 8);
+}
+
+function uint32le(data: Uint8Array, offset: number): number {
   return (
-    (data[offset] ?? 0) * 0x1000000 +
-    (data[offset + 1] ?? 0) * 0x10000 +
-    (data[offset + 2] ?? 0) * 0x100 +
-    (data[offset + 3] ?? 0)
+    ((data[offset] ?? 0) |
+      ((data[offset + 1] ?? 0) << 8) |
+      ((data[offset + 2] ?? 0) << 16) |
+      ((data[offset + 3] ?? 0) << 24)) >>>
+    0
   );
 }
 
-function readUInt16BE(data: Uint8Array, offset: number): number {
-  return (data[offset] ?? 0) * 0x100 + (data[offset + 1] ?? 0);
+/** Decodifica como ASCII (latin1) los primeros bytes, para comprobaciones de texto. */
+function decodeAscii(data: Uint8Array, maxBytes = 4096): string {
+  const end = Math.min(data.length, maxBytes);
+  let value = "";
+  for (let i = 0; i < end; i += 1) {
+    value += String.fromCharCode(data[i] ?? 0);
+  }
+  return value;
 }
 
-function readUInt16LE(data: Uint8Array, offset: number): number {
-  return (data[offset] ?? 0) + (data[offset + 1] ?? 0) * 0x100;
-}
-
-/** Entero de 24 bits little-endian (WebP guarda asi el canvas). */
-function readUInt24LE(data: Uint8Array, offset: number): number {
+function uint32be(data: Uint8Array, offset: number): number {
   return (
-    (data[offset] ?? 0) +
-    (data[offset + 1] ?? 0) * 0x100 +
-    (data[offset + 2] ?? 0) * 0x10000
+    ((data[offset] ?? 0) * 0x1000000) +
+    (((data[offset + 1] ?? 0) << 16) | ((data[offset + 2] ?? 0) << 8) | (data[offset + 3] ?? 0))
   );
 }
 
-/**
- * Marcadores SOF de un JPEG: los que llevan la definicion de la imagen.
- *
- * C4 es DHT (tabla de Huffman) y C8/CC reservados: tienen carga util, pero no
- * dimensiones. Los demas C0..CF si las llevan tras precision, alto y ancho.
- */
-function isStartOfFrame(marker: number): boolean {
-  return (
-    marker >= 0xc0 &&
-    marker <= 0xcf &&
-    marker !== 0xc4 &&
-    marker !== 0xc8 &&
-    marker !== 0xcc
-  );
+const PNG_SIGNATURE = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+
+function sniffPng(data: Uint8Array): SniffResult | null {
+  if (data.length < 24) return null;
+  for (let i = 0; i < PNG_SIGNATURE.length; i += 1) {
+    if (data[i] !== PNG_SIGNATURE[i]) return null;
+  }
+  return {
+    mime: "image/png",
+    extension: "png",
+    width: uint32be(data, 16),
+    height: uint32be(data, 20),
+  };
 }
 
-/**
- * Dimensiones de un JPEG recorriendo sus segmentos hasta el primer SOF.
- *
- * Sin esto, un plano en JPG se guardaba sin ancho ni alto y la planta no
- * podia colocar la imagen de referencia. El recorrido se detiene en SOS: ahi
- * empiezan los datos comprimidos y el resto son bytes de imagen, no marcadores.
- */
-function jpegSize(data: Uint8Array): { width: number; height: number } | null {
+function sniffJpeg(data: Uint8Array): SniffResult | null {
   if (data.length < 4) return null;
-
-  let offset = 2; // se salta el SOI (FFD8)
-  let guard = 0;
-
-  while (offset + 4 <= data.length && guard < 256) {
-    guard += 1;
+  if (data[0] !== 0xff || data[1] !== 0xd8) return null;
+  let offset = 2;
+  while (offset + 9 < data.length) {
     if (data[offset] !== 0xff) {
       offset += 1;
       continue;
     }
-
-    let marker = data[offset + 1] ?? 0;
-    // Relleno: varios 0xFF seguidos antes del marcador real.
-    while (marker === 0xff && offset + 2 < data.length) {
+    const marker = data[offset + 1] ?? 0;
+    if (marker === 0xff) {
       offset += 1;
-      marker = data[offset + 1] ?? 0;
+      continue;
     }
-
-    offset += 2;
-
-    // Sin carga util: RSTn, TEM y el propio SOI repetido.
-    if (marker === 0x01 || (marker >= 0xd0 && marker <= 0xd8)) continue;
-    // Fin de imagen o comienzo de scan: no hay mas metadatos utiles.
-    if (marker === 0xd9 || marker === 0xda) break;
-
-    const length = readUInt16BE(data, offset);
-    if (length < 2) break;
-
-    if (isStartOfFrame(marker)) {
+    if (
+      marker === 0x01 ||
+      marker === 0xd8 ||
+      marker === 0xd9 ||
+      (marker >= 0xd0 && marker <= 0xd7)
+    ) {
+      offset += 2;
+      continue;
+    }
+    const length = uint16be(data, offset + 2);
+    if (length < 2) return null;
+    const isSof =
+      marker >= 0xc0 &&
+      marker <= 0xcf &&
+      marker !== 0xc4 &&
+      marker !== 0xc8 &&
+      marker !== 0xcc;
+    if (isSof) {
       return {
-        height: readUInt16BE(data, offset + 1),
-        width: readUInt16BE(data, offset + 3),
+        mime: "image/jpeg",
+        extension: "jpg",
+        width: uint16be(data, offset + 7),
+        height: uint16be(data, offset + 5),
       };
     }
-
-    offset += length;
+    offset += 2 + length;
   }
+  return { mime: "image/jpeg", extension: "jpg", width: null, height: null };
+}
 
+function sniffWebp(data: Uint8Array): SniffResult | null {
+  if (data.length < 16) return null;
+  if (ascii(data, 0, 4) !== "RIFF" || ascii(data, 8, 4) !== "WEBP") return null;
+  const fourcc = ascii(data, 12, 4);
+  if (fourcc === "VP8 ") {
+    if (data.length < 30) return null;
+    return {
+      mime: "image/webp",
+      extension: "webp",
+      width: uint16le(data, 26) & 0x3fff,
+      height: uint16le(data, 28) & 0x3fff,
+    };
+  }
+  if (fourcc === "VP8L") {
+    if (data.length < 25) return null;
+    const b0 = data[21] ?? 0;
+    const b1 = data[22] ?? 0;
+    const b2 = data[23] ?? 0;
+    const b3 = data[24] ?? 0;
+    const width = 1 + (((b1 & 0x3f) << 8) | b0);
+    const height = 1 + (((b3 & 0x0f) << 10) | (b2 << 2) | ((b1 & 0xc0) >> 6));
+    return { mime: "image/webp", extension: "webp", width, height };
+  }
+  if (fourcc === "VP8X") {
+    if (data.length < 30) return null;
+    const width =
+      1 + ((data[24] ?? 0) | ((data[25] ?? 0) << 8) | ((data[26] ?? 0) << 16));
+    const height =
+      1 + ((data[27] ?? 0) | ((data[28] ?? 0) << 8) | ((data[29] ?? 0) << 16));
+    return { mime: "image/webp", extension: "webp", width, height };
+  }
+  return { mime: "image/webp", extension: "webp", width: null, height: null };
+}
+
+function sniffPdf(data: Uint8Array): SniffResult | null {
+  if (data.length < 5) return null;
+  if (ascii(data, 0, 5) !== "%PDF-") return null;
+  return { mime: "application/pdf", extension: "pdf", width: null, height: null };
+}
+
+function sniffGlb(data: Uint8Array): SniffResult | null {
+  if (data.length < 12) return null;
+  if (ascii(data, 0, 4) !== "glTF") return null;
+  return { mime: "model/gltf-binary", extension: "glb", width: null, height: null };
+}
+
+function sniffGltf(data: Uint8Array): SniffResult | null {
+  const text = decodeAscii(data).trimStart();
+  if (!text.startsWith("{")) return null;
+  if (!/"asset"/.test(text)) return null;
+  return { mime: "model/gltf+json", extension: "gltf", width: null, height: null };
+}
+
+function sniffObj(data: Uint8Array): SniffResult | null {
+  const text = decodeAscii(data);
+  if (!/(^|\r?\n)\s*v\s+[-0-9.]/.test(text)) return null;
+  if (!/(^|\r?\n)\s*f\s+\d/.test(text)) return null;
+  return { mime: "application/octet-stream", extension: "obj", width: null, height: null };
+}
+
+function sniffStl(data: Uint8Array): SniffResult | null {
+  if (data.length >= 84) {
+    const triangles = uint32le(data, 80);
+    if (triangles > 0 && 84 + triangles * 50 === data.length) {
+      return { mime: "application/octet-stream", extension: "stl", width: null, height: null };
+    }
+  }
+  const text = decodeAscii(data);
+  if (/^\s*solid\b/.test(text) && /\bfacet\b/.test(text)) {
+    return { mime: "application/octet-stream", extension: "stl", width: null, height: null };
+  }
   return null;
 }
 
-/**
- * Dimensiones de un WebP segun el chunk que lleva la imagen.
- *
- * - `VP8 ` (con perdida): ancho y alto de 14 bits tras la firma del codec.
- * - `VP8L` (sin perdida): 14 bits de ancho y 14 de alto, ambos menos uno.
- * - `VP8X` (extendido): canvas de 24 bits, tambien menos uno.
- */
-function webpSize(data: Uint8Array): { width: number; height: number } | null {
-  let offset = 12; // "RIFF" + tamano + "WEBP"
-
-  while (offset + 8 <= data.length) {
-    const fourCc = ascii(data, offset, 4);
-    const size = readUInt32LE(data, offset + 4);
-    const payload = offset + 8;
-    if (payload + size > data.length) return null;
-
-    if (fourCc === "VP8 " && size >= 10) {
-      return {
-        width: readUInt16LE(data, payload + 6) & 0x3fff,
-        height: readUInt16LE(data, payload + 8) & 0x3fff,
-      };
-    }
-
-    if (fourCc === "VP8L" && size >= 5) {
-      const bits = readUInt32LE(data, payload + 1);
-      return {
-        width: (bits & 0x3fff) + 1,
-        height: ((bits >> 14) & 0x3fff) + 1,
-      };
-    }
-
-    if (fourCc === "VP8X" && size >= 10) {
-      return {
-        width: readUInt24LE(data, payload + 4) + 1,
-        height: readUInt24LE(data, payload + 7) + 1,
-      };
-    }
-
-    // Los chunks se alinean a numero par.
-    offset = payload + size + (size % 2);
-  }
-
-  return null;
-}
-
-function readUInt32LE(data: Uint8Array, offset: number): number {
+export function sniff(data: Uint8Array): SniffResult | null {
+  if (data.length === 0) return null;
   return (
-    (data[offset] ?? 0) +
-    (data[offset + 1] ?? 0) * 0x100 +
-    (data[offset + 2] ?? 0) * 0x10000 +
-    (data[offset + 3] ?? 0) * 0x1000000
+    sniffPng(data) ??
+    sniffJpeg(data) ??
+    sniffWebp(data) ??
+    sniffPdf(data) ??
+    sniffGlb(data) ??
+    sniffGltf(data) ??
+    sniffObj(data) ??
+    sniffStl(data) ??
+    null
   );
 }

@@ -10,15 +10,18 @@ import {
   type ReactNode,
 } from "react";
 import { Canvas, useFrame, useThree, type ThreeEvent } from "@react-three/fiber";
-import { Grid, Html, OrbitControls } from "@react-three/drei";
+import { Grid, Html, OrbitControls, Stats } from "@react-three/drei";
 import { RotateCw } from "lucide-react";
+import * as THREE from "three";
 import {
   computeSceneBounds,
   environmentPreset,
   fitPose,
   findWallAt,
   poseForView,
+  SceneEnvironment,
   snapPoint,
+  useSunStudyStore,
   type CameraPose,
 } from "@archvision/three-engine";
 import { Camera, Mesh, MOUSE, Object3D, Vector2 as ThreeVector2 } from "three";
@@ -51,6 +54,9 @@ import {
   StairObject,
   WallObject,
 } from "./scene-objects";
+import { SunSky } from "./SunSky";
+import { CompassSync } from "./CompassSync";
+import { RenderExporter } from "./RenderExporter";
 
 /**
  * Visor 3D.
@@ -221,25 +227,30 @@ function SceneLights({ scene }: { scene: SceneDocument }) {
   const preset = environmentPreset(scene.environment);
   const [dx, dy, dz] = preset.sunDirection;
   const distance = 40;
+  const sunStudyActive = useSunStudyStore((state) => state.sunPanelOpen);
 
   return (
     <>
       <hemisphereLight
         args={[preset.skyColor, preset.groundColor, preset.ambientIntensity]}
       />
-      <directionalLight
-        position={[dx * distance, dy * distance, dz * distance]}
-        intensity={preset.sunIntensity}
-        color={preset.sunColor}
-        castShadow
-        shadow-mapSize-width={2048}
-        shadow-mapSize-height={2048}
-        shadow-camera-left={-40}
-        shadow-camera-right={40}
-        shadow-camera-top={40}
-        shadow-camera-bottom={-40}
-        shadow-camera-far={160}
-      />
+      {sunStudyActive ? (
+        <SunSky />
+      ) : (
+        <directionalLight
+          position={[dx * distance, dy * distance, dz * distance]}
+          intensity={preset.sunIntensity}
+          color={preset.sunColor}
+          castShadow
+          shadow-mapSize-width={2048}
+          shadow-mapSize-height={2048}
+          shadow-camera-left={-40}
+          shadow-camera-right={40}
+          shadow-camera-top={40}
+          shadow-camera-bottom={-40}
+          shadow-camera-far={160}
+        />
+      )}
       <color attach="background" args={[preset.skyColor]} />
     </>
   );
@@ -1335,7 +1346,13 @@ export function Viewport3D() {
       // camara que ya no es la activa, y los encuadres se aplican a la
       // equivocada. Las vistas ortogonales exactas se resuelven en el plano 2D.
       camera={{ position: [14, 12, -16], fov: 50, near: 0.05, far: 2000 }}
-      gl={{ antialias: true, preserveDrawingBuffer: true }}
+      gl={{
+        antialias: false,
+        toneMapping: THREE.ACESFilmicToneMapping,
+        toneMappingExposure: 1.0,
+        powerPreference: "high-performance",
+        preserveDrawingBuffer: true,
+      }}
       onCreated={({ gl }) => {
         // La perdida de contexto ocurre cuando el navegador recupera memoria de
         // GPU (muchas pestanas abiertas, recargas en caliente, portatiles con
@@ -1355,6 +1372,10 @@ export function Viewport3D() {
       className="absolute inset-0"
       style={{ position: "absolute", inset: 0 }}
     >
+      <SceneEnvironment preset="sunset" exposure={1.0} />
+      {process.env.NODE_ENV === "development" && <Stats />}
+      <CompassSync />
+      <RenderExporter />
       <OrbitControls
         makeDefault
         enableDamping
