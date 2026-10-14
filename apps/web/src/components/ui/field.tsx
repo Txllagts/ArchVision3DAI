@@ -1,11 +1,15 @@
+"use client";
+
 import {
   forwardRef,
   useId,
+  useState,
   type InputHTMLAttributes,
   type ReactNode,
   type SelectHTMLAttributes,
   type TextareaHTMLAttributes,
 } from "react";
+import { Eye, EyeOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 /**
@@ -52,23 +56,67 @@ export interface TextFieldProps extends InputHTMLAttributes<HTMLInputElement> {
   label: string;
   hint?: string;
   error?: string;
+  /** Permite desactivar el botón de alternar visibilidad en campos de tipo contraseña. Por defecto es true. */
+  showPasswordToggle?: boolean;
 }
 
 export const TextField = forwardRef<HTMLInputElement, TextFieldProps>(
-  ({ label, hint, error, className, id, required, ...props }, ref) => {
+  (
+    {
+      label,
+      hint,
+      error,
+      className,
+      id,
+      required,
+      type,
+      showPasswordToggle = true,
+      ...props
+    },
+    ref,
+  ) => {
     const generatedId = useId();
     const fieldId = id ?? generatedId;
+    const isPassword = type === "password";
+    const [revealed, setRevealed] = useState(false);
+
+    const effectiveType = isPassword && showPasswordToggle ? (revealed ? "text" : "password") : type;
+
     return (
       <FieldShell id={fieldId} label={label} hint={hint} error={error} required={required}>
-        <input
-          ref={ref}
-          id={fieldId}
-          required={required}
-          aria-invalid={error ? true : undefined}
-          aria-describedby={error ? `${fieldId}-error` : hint ? `${fieldId}-hint` : undefined}
-          className={cn(CONTROL_CLASS, error && "border-danger", className)}
-          {...props}
-        />
+        <div className="relative">
+          <input
+            ref={ref}
+            id={fieldId}
+            type={effectiveType}
+            required={required}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={error ? `${fieldId}-error` : hint ? `${fieldId}-hint` : undefined}
+            className={cn(
+              CONTROL_CLASS,
+              isPassword && showPasswordToggle && "pr-10",
+              error && "border-danger",
+              className,
+            )}
+            {...props}
+          />
+          {isPassword && showPasswordToggle ? (
+            <button
+              type="button"
+              tabIndex={-1}
+              onClick={() => setRevealed((prev) => !prev)}
+              className="absolute right-2 top-1/2 -translate-y-1/2 rounded p-1 text-ink-subtle transition-colors hover:text-ink focus:outline-none focus-visible:ring-1 focus-visible:ring-accent"
+              aria-label={revealed ? "Ocultar contraseña" : "Mostrar contraseña"}
+              title={revealed ? "Ocultar contraseña" : "Mostrar contraseña"}
+            >
+              {revealed ? (
+                <EyeOff className="size-4" aria-hidden="true" />
+              ) : (
+                <Eye className="size-4" aria-hidden="true" />
+              )}
+            </button>
+          ) : null}
+        </div>
       </FieldShell>
     );
   },

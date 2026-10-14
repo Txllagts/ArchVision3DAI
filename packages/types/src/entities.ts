@@ -21,6 +21,7 @@ export const SCENE_OBJECT_TYPES = [
   "light",
   "terrain",
   "annotation",
+  "imported-model",
 ] as const;
 
 export type SceneObjectType = (typeof SCENE_OBJECT_TYPES)[number];
@@ -309,6 +310,26 @@ export interface FurnitureInstance {
   materialOverrides?: Record<string, EntityId>;
   visible: boolean;
   locked: boolean;
+}
+
+// --------------------------------------------------------------------------
+// Modelo 3D importado (GLB/GLTF)
+// --------------------------------------------------------------------------
+
+export interface ImportedModel {
+  id: EntityId;
+  floorId: EntityId;
+  name: string;
+  /** Identificador del ProjectFile con el modelo GLB/GLTF. */
+  fileId: EntityId;
+  /** URL de descarga del modelo. */
+  url: string;
+  position: Vector3;
+  rotation: Euler3;
+  scale: Vector3;
+  visible: boolean;
+  locked: boolean;
+  source: "import";
 }
 
 // --------------------------------------------------------------------------

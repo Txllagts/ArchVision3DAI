@@ -8,6 +8,7 @@ import {
   Camera,
   Clipboard,
   Copy,
+  Download,
   Home,
   Layers,
   Maximize2,
@@ -15,6 +16,7 @@ import {
   Palette,
   Plus,
   Redo2,
+  RotateCcw,
   Save,
   Sparkles,
   Square,
@@ -34,6 +36,7 @@ export function EditorTopBar({ onSave }: { onSave: () => void }) {
   const activeFloorId = useEditorStore((state) => state.activeFloorId);
   const viewMode = useEditorStore((state) => state.viewMode);
   const saveStatus = useEditorStore((state) => state.saveStatus);
+  const saveError = useEditorStore((state) => state.saveError);
   const materialsOpen = useEditorStore((state) => state.materialsOpen);
   const setMaterialsOpen = useEditorStore((state) => state.setMaterialsOpen);
   const planPanelOpen = useEditorStore((state) => state.planPanelOpen);
@@ -50,14 +53,15 @@ export function EditorTopBar({ onSave }: { onSave: () => void }) {
   const setActiveFloor = useEditorStore((state) => state.setActiveFloor);
   const setViewMode = useEditorStore((state) => state.setViewMode);
   const requestView = useEditorStore((state) => state.requestView);
+  const setExportOpen = useEditorStore((state) => state.setExportOpen);
   const { canUndo, canRedo } = useHistoryFlags();
   const [roofOpen, setRoofOpen] = useState(false);
 
   const statusLabel: Record<typeof saveStatus, string> = {
     saved: "Guardado",
-    dirty: "Cambios sin guardar",
+    dirty: "Pendiente",
     saving: "Guardando...",
-    error: "Error al guardar",
+    error: saveError ?? "Error al guardar",
     conflict: "Conflicto de version",
   };
 
@@ -133,11 +137,16 @@ export function EditorTopBar({ onSave }: { onSave: () => void }) {
       <div className="flex items-center gap-1">
         <Layers className="size-4 text-ink-subtle" aria-hidden />
         <select
-          value={activeFloorId ?? ""}
-          onChange={(event) => setActiveFloor(event.target.value)}
+          value={activeFloorId ?? "all"}
+          onChange={(event) => {
+            const val = event.target.value;
+            setActiveFloor(val === "all" ? null : val);
+          }}
           aria-label="Nivel activo"
-          className="h-8 rounded-md border border-line bg-surface px-2 text-xs text-ink"
+          title="Elige 'Vista completa' para ver la construcción entera en 3D, o un piso específico para aislarlo"
+          className="h-8 rounded-md border border-line bg-surface px-2 text-xs font-medium text-ink"
         >
+          <option value="all">Vista completa</option>
           {scene.floors.map((floor) => (
             <option key={floor.id} value={floor.id}>
               {floor.name}
@@ -295,9 +304,34 @@ export function EditorTopBar({ onSave }: { onSave: () => void }) {
           ))}
         </div>
 
-        <span className={cn("ml-2 text-[11px]", statusTone[saveStatus])}>
+        <span
+          className={cn("ml-2 max-w-64 truncate text-[11px]", statusTone[saveStatus])}
+          title={statusLabel[saveStatus]}
+        >
           {statusLabel[saveStatus]}
         </span>
+
+        {saveStatus === "error" ? (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onSave}
+            title="Reintentar guardado (Ctrl+S)"
+          >
+            <RotateCcw className="size-4" aria-hidden />
+            Reintentar
+          </Button>
+        ) : null}
+
+        <Button
+          variant="outline"
+          size="sm"
+          title="Exportar modelo (Ctrl+E)"
+          onClick={() => setExportOpen(true)}
+        >
+          <Download className="size-4" aria-hidden />
+          Exportar
+        </Button>
 
         <Button size="sm" onClick={onSave} title="Guardar (Ctrl+S)">
           <Save className="size-4" aria-hidden />

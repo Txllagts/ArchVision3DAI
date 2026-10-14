@@ -30,7 +30,7 @@ import {
   Raycaster,
   Vector3 as ThreeVector3,
 } from "three";
-import type { Floor, SceneDocument, Vector2 } from "@archvision/types";
+import type { Floor, ImportedModel, SceneDocument, Vector2 } from "@archvision/types";
 import {
   getSelectionPivot,
   getSelectableBounds,
@@ -39,10 +39,12 @@ import {
   type SelectableEntityKind,
 } from "@archvision/shared";
 import { useEditorStore, type ToolId } from "@/lib/editor/store";
+import { setActiveViewport } from "@/lib/3d/active-scene";
 import { readRotationStepDegrees } from "@/lib/editor/rotation-preference";
 import {
   ColumnObject,
   FurnitureObject,
+  ImportedModelObject,
   RoofObject,
   RoomFloorObject,
   SlabObject,
@@ -64,7 +66,8 @@ import {
  * los addons de Three.js.
  */
 interface OrbitControlsLike {
-  target: { x: number; y: number; z: number; set: (x: number, y: number, z: number) => void };
+  target: ThreeVector3;
+  enabled?: boolean;
   update: () => void;
 }
 
@@ -83,11 +86,20 @@ function CameraRig({ bounds }: { bounds: ReturnType<typeof computeSceneBounds> }
     (state) =>
       state.scene.walls.length +
         state.scene.slabs.length +
-        state.scene.roofs.length >
+        state.scene.roofs.length +
+        state.scene.importedModels.length >
       0,
   );
 
   const framed = useRef(false);
+
+  // Destino de la animacion de camara. `null` = sin transicion activa, de modo
+  // que el useFrame de abajo no cuesta nada cuando no hay animacion.
+  const targetPose = useRef<CameraPose | null>(null);
+  const destination = useRef(new ThreeVector3());
+  const destinationTarget = useRef(new ThreeVector3());
+  // lerp factor: ajustar entre 0.05 y 0.15
+  const LERP_FACTOR = 0.08;
 
   // El encuadre inicial se aplica dentro del bucle de render: es el unico
   // punto donde la camara activa y los controles existen con seguridad,
@@ -123,18 +135,52 @@ function CameraRig({ bounds }: { bounds: ReturnType<typeof computeSceneBounds> }
     };
 
     const pose =
-      pendingView === "fit" ? fitPose(bounds, current) : poseForView(pendingView, bounds);
+      pendingView === "fit"
+        ? fitPose(bounds, current)
+        : pendingView === "perspective"
+          ? {
+              position: { x: 14, y: 12, z: -16 },
+              target: { x: 0, y: 0, z: 0 },
+              orthographic: false,
+            }
+          : poseForView(pendingView, bounds);
 
-    camera.position.set(pose.position.x, pose.position.y, pose.position.z);
-    camera.lookAt(pose.target.x, pose.target.y, pose.target.z);
+    // La camara ya no salta: se guarda el destino y el useFrame interpola.
+    targetPose.current = pose;
+    destination.current.set(pose.position.x, pose.position.y, pose.position.z);
+    destinationTarget.current.set(pose.target.x, pose.target.y, pose.target.z);
 
+    // Deshabilita la orbita mientras dura la animacion.
+    if (controls) controls.enabled = false;
+  }, [pendingView, bounds, camera, controls]);
+
+  // Animacion suave hacia targetPose (early-return si no hay transicion).
+  useFrame(() => {
+    if (!targetPose.current) return;
+
+    camera.position.lerp(destination.current, LERP_FACTOR);
     if (controls) {
-      controls.target.set(pose.target.x, pose.target.y, pose.target.z);
+      controls.enabled = false;
+      controls.target.lerp(destinationTarget.current, LERP_FACTOR);
       controls.update();
+    } else {
+      camera.lookAt(destinationTarget.current);
     }
 
-    requestView(null);
-  }, [pendingView, camera, controls, bounds, requestView]);
+    if (camera.position.distanceTo(destination.current) < 0.01) {
+      camera.position.copy(destination.current);
+      if (controls) {
+        controls.target.copy(destinationTarget.current);
+        controls.update();
+        controls.enabled = true;
+      } else {
+        camera.lookAt(destinationTarget.current);
+      }
+      targetPose.current = null;
+      // Limpia pendingView del store al terminar la animacion.
+      requestView(null);
+    }
+  });
 
   return null;
 }
@@ -192,6 +238,24 @@ function MaterialDropTarget() {
 
     requestDrop(null);
   }, [pendingDrop, camera, gl, raycaster, threeScene, requestDrop]);
+
+  return null;
+}
+
+/**
+ * Publica el visor (escena, camara y renderer) fuera de React: el modulo de
+ * exportacion clona la escena para los formatos de malla y lee el canvas
+ * para la captura PNG; no hay otra forma de alcanzarlo desde el store.
+ */
+function ActiveSceneHandle() {
+  const scene = useThree((state) => state.scene);
+  const camera = useThree((state) => state.camera);
+  const gl = useThree((state) => state.gl);
+
+  useEffect(() => {
+    setActiveViewport({ scene, camera, gl });
+    return () => setActiveViewport(null);
+  }, [scene, camera, gl]);
 
   return null;
 }
@@ -412,6 +476,20 @@ function FloorContent({
           <PreviewTransform key={item.id} id={item.id} preview={transformPreview}>
             <FurnitureObject
               item={item}
+              elevation={floor.elevation}
+              selection={selection}
+              hoveredId={hoveredId}
+              handlers={handlers}
+            />
+          </PreviewTransform>
+        ))}
+
+      {scene.importedModels
+        .filter((model) => model.floorId === floor.id)
+        .map((model) => (
+          <PreviewTransform key={model.id} id={model.id} preview={transformPreview}>
+            <ImportedModelObject
+              model={model}
               elevation={floor.elevation}
               selection={selection}
               hoveredId={hoveredId}
@@ -911,6 +989,7 @@ function SceneContent() {
       collect("roof", scene.roofs);
       collect("slab", scene.slabs);
       collect("furniture", scene.furniture);
+      collect("imported-model", scene.importedModels);
       select(ids, additive);
       setMarquee(null);
     },
@@ -1210,17 +1289,19 @@ function SceneContent() {
         </group>
       ) : null}
 
-      {scene.floors.map((floor) => (
-        <FloorContent
-          key={floor.id}
-          floor={floor}
-          scene={scene}
-          selection={selection}
-          hoveredId={hoveredId}
-          handlers={handlers}
-          transformPreview={transformPreview}
-        />
-      ))}
+      {scene.floors
+        .filter((floor) => !activeFloorId || floor.id === activeFloorId)
+        .map((floor) => (
+          <FloorContent
+            key={floor.id}
+            floor={floor}
+            scene={scene}
+            selection={selection}
+            hoveredId={hoveredId}
+            handlers={handlers}
+            transformPreview={transformPreview}
+          />
+        ))}
 
       {tool === "wall" && drawStart && cursor ? (
         <WallPreview
@@ -1332,6 +1413,7 @@ export function Viewport3D() {
         minDistance={1}
         maxDistance={400}
       />
+      <ActiveSceneHandle />
       <SceneContent />
     </Canvas>
     </div>

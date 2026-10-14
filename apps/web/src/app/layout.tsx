@@ -34,6 +34,13 @@ export const metadata: Metadata = {
   description: brand.subtitle,
   applicationName: brand.name,
   authors: [{ name: brand.company }],
+  icons: {
+    icon: [
+      { url: "/logo.svg", type: "image/svg+xml" },
+    ],
+    shortcut: "/logo.svg",
+    apple: "/logo.svg",
+  },
   robots: { index: true, follow: true },
 };
 

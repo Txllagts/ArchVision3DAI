@@ -56,10 +56,24 @@ const migrate_1_1_to_1_2: Migration = (scene) => ({
   underlay: scene.underlay ?? null,
 });
 
+/**
+ * 1.2 -> 1.3: la escena puede llevar modelos 3D importados.
+ *
+ * Sin este paso, cualquier proyecto guardado antes de la version 1.3 se
+ * quedaria en 1.2 y fallaria la validacion: `importedModels` es obligatorio en
+ * el esquema actual. El documento en disco no se toca; se migra en memoria.
+ */
+const migrate_1_2_to_1_3: Migration = (scene) => ({
+  ...scene,
+  version: "1.3",
+  importedModels: Array.isArray(scene.importedModels) ? scene.importedModels : [],
+});
+
 /** Paso a paso: cada entrada lleva del formato indicado al siguiente. */
 const MIGRATIONS: Record<string, Migration | undefined> = {
   "1.0": migrate_1_0_to_1_1,
   "1.1": migrate_1_1_to_1_2,
+  "1.2": migrate_1_2_to_1_3,
 };
 
 export function isKnownSceneVersion(value: unknown): value is AnySceneSchemaVersion {

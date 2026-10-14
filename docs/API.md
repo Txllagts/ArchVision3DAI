@@ -106,8 +106,10 @@ proyecto y todo lo asociado.
 Validación en dos pasos: esquema Zod completo e integridad referencial (los
 vanos apuntan a paredes existentes, cada objeto a un nivel existente, los
 materiales referenciados existen). Si `expectedRevision` no coincide con la
-revisión almacenada se devuelve `409` con la revisión actual, y el cliente
-decide si recarga o fuerza el guardado.
+revisión almacenada se devuelve `409` con la revisión actual; el cliente
+consulta la escena con `GET`, adopta el token si el cambio era suyo (guardado
+con respuesta perdida), fusiona los cambios ajenos no solapados y, si solapan,
+muestra un diálogo de resolución sin sobrescribir nada en silencio.
 
 Límite de cuerpo: 12 MB.
 
@@ -136,7 +138,11 @@ clave del almacenamiento.
 
 ### `POST /api/projects/:id/files`
 `multipart/form-data` con `file`, `kind` (`floorplan` | `photo` | `texture` |
-`render`) y `role` opcional. `201` con el archivo creado.
+`model` | `render`), `role` opcional y `clientKey` opcional (clave de
+idempotencia del cliente). `201` con el archivo creado y, cuando existe escena,
+la `revision` vigente para que el editor actualice su token de guardado. Un
+reintento con la misma `clientKey` devuelve el archivo ya creado en lugar de
+duplicarlo (ventana de 10 minutos).
 
 El tipo se decide **leyendo la cabecera del archivo**, no el `Content-Type` que
 declara el cliente; si no coinciden, se rechaza. Se aceptan PNG, JPEG, WebP y

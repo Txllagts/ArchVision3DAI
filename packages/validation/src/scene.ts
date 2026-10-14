@@ -42,7 +42,11 @@ const dimension = z.number().finite().min(0).max(SCENE_LIMITS.maxDimension);
 const angle = z.number().finite().min(-1000).max(1000);
 const unitInterval = z.number().min(0).max(1);
 const id = z.string().min(1).max(64);
-const entityName = z.string().trim().min(1).max(120);
+
+/** Tope de nombre de entidad; los nombres de archivo se recortan a este limite. */
+export const ENTITY_NAME_MAX = 120;
+
+const entityName = z.string().trim().min(1).max(ENTITY_NAME_MAX);
 const hexColor = z
   .string()
   .regex(/^#[0-9a-fA-F]{6}$/, "Color hexadecimal invalido");
@@ -225,11 +229,44 @@ export const furnitureSchema = z.object({
 });
 
 /**
- * Plano de referencia.
+ * URL de descarga de un modelo importado.
  *
- * `fileId` apunta a un `ProjectFile`; la comprobacion de que existe y de que
- * pertenece al proyecto se hace en el servidor, no aqui: este esquema valida
- * forma, no permisos.
+ * El editor persiste rutas relativas de la propia app
+ * (`/api/projects/.../files/.../content`) para los archivos subidos, y URLs
+ * absolutas para los modelos que aloja el servicio de IA. Ambos formatos son
+ * validos: `z.string().url()` exigia esquema y rechazaba la ruta relativa,
+ * con el resultado de que importar un GLB dejaba la escena entera invalida y
+ * el guardado fallaba siempre.
+ */
+export const modelUrlSchema = z
+  .string()
+  .min(1)
+  .max(2048)
+  .refine(
+    (value) => value.startsWith("/") || /^https?:\/\/\S+$/.test(value),
+    "URL de modelo invalida",
+  );
+
+export const importedModelSchema = z.object({
+  id,
+  floorId: id,
+  name: entityName,
+  fileId: id,
+  url: modelUrlSchema,
+  position: vector3Schema,
+  rotation: eulerSchema,
+  scale: z.object({
+    x: z.number().min(0.001).max(100),
+    y: z.number().min(0.001).max(100),
+    z: z.number().min(0.001).max(100),
+  }),
+  visible: z.boolean(),
+  locked: z.boolean(),
+  source: z.literal("import"),
+});
+
+/**
+ * Plano de referencia.
  */
 export const underlaySchema = z.object({
   fileId: id,
@@ -323,6 +360,7 @@ export const sceneDocumentSchema = z.object({
   slabs: z.array(slabSchema).max(500),
   rooms: z.array(roomSchema).max(500),
   furniture: z.array(furnitureSchema).max(SCENE_LIMITS.maxFurniture),
+  importedModels: z.array(importedModelSchema).max(SCENE_LIMITS.maxFurniture),
   materials: z.array(materialSchema).max(SCENE_LIMITS.maxMaterials),
   underlay: underlaySchema.nullish(),
   lights: z.array(lightSchema).max(500),

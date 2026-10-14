@@ -1,6 +1,7 @@
 "use client";
 
 import type { PlanUnderlay, Vector2 } from "@archvision/types";
+import { pixelToWorld } from "@archvision/shared";
 
 /**
  * Colocacion del plano importado.
@@ -11,21 +12,14 @@ import type { PlanUnderlay, Vector2 } from "@archvision/types";
  * apoyarlo donde el usuario quiera).
  *
  *   mundo = offset + R(rotacion) * (pixel / pixelesPorMetro)
+ *
+ * La formula vive en `@archvision/shared` (`pixelToWorld`) porque la usa
+ * tambien la traduccion de los analisis del servicio de IA: los muros
+ * detectados deben caer sobre la misma imagen que ve el usuario.
  */
 
 export function imageToWorld(underlay: PlanUnderlay, pixel: Vector2): Vector2 {
-  const scale = 1 / underlay.pixelsPerMeter;
-  const angle = (underlay.rotationDeg * Math.PI) / 180;
-  const cos = Math.cos(angle);
-  const sin = Math.sin(angle);
-
-  const x = pixel.x * scale;
-  const y = pixel.y * scale;
-
-  return {
-    x: underlay.offset.x + x * cos - y * sin,
-    y: underlay.offset.y + x * sin + y * cos,
-  };
+  return pixelToWorld([pixel.x, pixel.y], underlay);
 }
 
 export function worldToImage(underlay: PlanUnderlay, world: Vector2): Vector2 {

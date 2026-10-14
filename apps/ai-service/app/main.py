@@ -24,6 +24,7 @@ from app.services.geometry_utils import canonicalize_glb
 from app.services.glb_validation import validate_generated_glb
 from app.services.instantmesh_pipeline import InstantMeshPipeline
 from app.services.mesh_completion import complete_mesh
+from app.services.rmbg_model import ensure_rmbg_model
 from app.services.supabase_storage import SupabaseModelStorage
 from app.services.triposr_pipeline import TriposrPipeline
 from app.settings import Settings, get_settings
@@ -85,13 +86,28 @@ async def lifespan(app: FastAPI):
             )
 
         try:
-            if not settings.rembg_model_path.is_file():
-                raise RuntimeError(
-                    f"RMBG_MODEL_PATH={settings.rembg_model_path} "
-                    "no existe o no es un archivo."
+            # Valida la cabecera del ONNX y, si falta o es invalido (p. ej. un
+            # checkpoint renombrado o un puntero LFS), lo pone en cuarentena y
+            # descarga el oficial de Hugging Face. Si aun asi ONNX Runtime lo
+            # rechaza (corrupcion a mitad de stream, Invisible en cabecera),
+            # se reinstala el oficial y se reintenta una vez. Cualquier fallo
+            # degrada sin tumbar el lifespan: los endpoints de imagen
+            # responderan 503 con el motivo.
+            model_path = ensure_rmbg_model(settings)
+            logger.info("Cargando modelo RMBG desde %s", model_path)
+            try:
+                app.state.rembg_session = _new_rembg_session(model_path)
+            except Exception as load_error:
+                if not settings.rembg_auto_download:
+                    raise
+                logger.warning(
+                    "ONNX Runtime rechazo el modelo RMBG (%s); se reinstala "
+                    "el oficial y se reintenta una sola vez.",
+                    load_error,
                 )
-            logger.info("Cargando modelo RMBG desde %s", settings.rembg_model_path)
-            app.state.rembg_session = _new_rembg_session(settings.rembg_model_path)
+                model_path = ensure_rmbg_model(settings, force=True)
+                logger.info("Reintentando carga del modelo RMBG desde %s", model_path)
+                app.state.rembg_session = _new_rembg_session(model_path)
         except Exception as error:
             startup_errors.append(f"RMBG ONNX Runtime: {error}")
             logger.exception(
@@ -115,11 +131,26 @@ async def lifespan(app: FastAPI):
 
 
 def _new_rembg_session(model_path: Path):
+    import ctypes
+    import glob
     import os
+    import sys
 
     import numpy as np
-    import onnxruntime as ort
     from rembg.sessions.u2net_custom import U2netCustomSession
+
+    # Preload pip-installed nvidia-cudnn shared libraries so ONNX Runtime can find them.
+    cudnn_dir = os.path.join(
+        sys.prefix, "lib", f"python{sys.version_info.major}.{sys.version_info.minor}", "site-packages", "nvidia", "cudnn", "lib"
+    )
+    if os.path.exists(cudnn_dir):
+        for lib in sorted(glob.glob(os.path.join(cudnn_dir, "*.so*"))):
+            try:
+                ctypes.CDLL(lib, mode=ctypes.RTLD_GLOBAL)
+            except Exception:
+                pass
+
+    import onnxruntime as ort
 
     class RmbgOnnxSession(U2netCustomSession):
         def __init__(self, model_name, session_options, *args, **kwargs):

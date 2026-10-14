@@ -60,7 +60,7 @@ function toApiMessages(
   return [...recent, { role: "user", content: message }];
 }
 
-export async function askModel(params: {
+export async function askClaude(params: {
   message: string;
   history: readonly AssistantMessage[];
   scene: SceneDocument;

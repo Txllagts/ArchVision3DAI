@@ -3,6 +3,7 @@ import type {
   Door,
   Floor,
   FurnitureInstance,
+  ImportedModel,
   Opening,
   Roof,
   SceneCommand,
@@ -358,6 +359,37 @@ export function applyCommand(
       return { ...scene, furniture: [...scene.furniture, item] };
     }
 
+    case "CREATE_IMPORTED_MODEL": {
+      const floor = requireFloor(scene, command.floorId);
+      const model: ImportedModel = {
+        id: createId(),
+        floorId: floor.id,
+        name: command.name,
+        fileId: command.fileId,
+        url: command.url,
+        position: command.position ?? { x: 0, y: 0, z: 0 },
+        rotation: command.rotation ?? { x: 0, y: 0, z: 0 },
+        scale: command.scale ?? { x: 1, y: 1, z: 1 },
+        visible: true,
+        locked: false,
+        source: "import",
+      };
+
+      return { ...scene, importedModels: [...scene.importedModels, model] };
+    }
+
+    case "UPDATE_IMPORTED_MODEL": {
+      const existing = scene.importedModels.find((item) => item.id === command.modelId);
+      if (!existing) throw new CommandError("El modelo importado no existe");
+
+      return {
+        ...scene,
+        importedModels: scene.importedModels.map((item) =>
+          item.id === command.modelId ? { ...item, ...command.patch } : item,
+        ),
+      };
+    }
+
     case "ASSIGN_MATERIAL": {
       const targets = new Set(command.targetIds);
       const face = command.face ?? "both";
@@ -608,6 +640,20 @@ export function applyCommand(
               }
             : item,
         ),
+        importedModels: scene.importedModels.map((model) =>
+          targets.has(model.id) && !model.locked
+            ? {
+                ...model,
+                position: {
+                  x: rotatePoint({ x: model.position.x, y: model.position.z }).x,
+                  y: model.position.y + move.y,
+                  z: rotatePoint({ x: model.position.x, y: model.position.z }).y,
+                },
+                rotation: { ...model.rotation, y: model.rotation.y + rotate },
+                scale: command.scale ? { ...command.scale } : model.scale,
+              }
+            : model,
+        ),
       };
       return wallTargets.size > 0
         ? { ...transformed, rooms: recomputeRooms(transformed) }
@@ -665,6 +711,7 @@ export function applyCommand(
         slabs: keepByFloor(scene.slabs as Array<Slab>),
         rooms: keepByFloor(scene.rooms),
         furniture: keepByFloor(scene.furniture as Array<FurnitureInstance>),
+        importedModels: keepByFloor(scene.importedModels as Array<ImportedModel>),
         activeFloorId,
       };
     }
@@ -692,11 +739,12 @@ export function applyCommand(
         roofs: mapItems(scene.roofs),
         slabs: mapItems(scene.slabs),
         furniture: mapItems(scene.furniture),
+        importedModels: mapItems(scene.importedModels),
         lights: mapItems(scene.lights),
       };
     }
 
-    case "RENAME_OBJECT": {
+case "RENAME_OBJECT": {
       const rename = <T extends { id: string; name: string }>(items: T[]): T[] =>
         items.map((item) =>
           item.id === command.id ? { ...item, name: command.name } : item,
@@ -715,6 +763,7 @@ export function applyCommand(
         slabs: rename(scene.slabs),
         rooms: rename(scene.rooms),
         furniture: rename(scene.furniture),
+        importedModels: rename(scene.importedModels),
         lights: rename(scene.lights),
       };
     }

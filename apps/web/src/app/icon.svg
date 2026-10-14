@@ -1,0 +1,44 @@
+<svg viewBox="0 0 140 130" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <!-- Cornisa Superior - Techo Isométrico -->
+  <polygon points="32,18 78,6 122,18 78,32" fill="#38bdf8" stroke="#0284c7" stroke-width="1.5" stroke-linejoin="round" />
+  <polygon points="30,20 78,33 78,38 30,24" fill="#38bdf8" />
+  <polygon points="78,33 124,20 124,24 78,38" fill="#0284c7" />
+
+  <!-- Fachada Principal Izquierda -->
+  <polygon points="33,26 78,39 78,118 33,103" fill="#38bdf8" />
+
+  <!-- Fachada Lateral Derecha -->
+  <polygon points="78,39 122,26 122,105 78,118" fill="#0284c7" />
+
+  <!-- Ventanas Piso 3 Arqueadas -->
+  <path d="M 40,43 Q 44,38 48,42 L 48,58 L 40,55 Z" fill="#ffffff" />
+  <path d="M 53,47 Q 57,42 61,46 L 61,62 L 53,59 Z" fill="#ffffff" />
+  <path d="M 66,51 Q 70,46 74,50 L 74,66 L 66,63 Z" fill="#ffffff" />
+
+  <!-- Ventanas Piso 2 Rectangulares -->
+  <polygon points="40,65 48,68 48,80 40,77" fill="#ffffff" />
+  <polygon points="53,69 61,72 61,84 53,81" fill="#ffffff" />
+  <polygon points="66,73 74,76 74,88 66,85" fill="#ffffff" />
+
+  <!-- Moldura y Puntos Friso -->
+  <polygon points="33,84 78,97 78,99 33,86" fill="#0284c7" opacity="0.6" />
+  <circle cx="41" cy="87" r="1.2" fill="#ffffff" />
+  <circle cx="50" cy="90" r="1.2" fill="#ffffff" />
+  <circle cx="59" cy="93" r="1.2" fill="#ffffff" />
+  <circle cx="68" cy="96" r="1.2" fill="#ffffff" />
+
+  <!-- Planta Baja y Entrada -->
+  <polygon points="39,94 49,97 49,111 39,107" fill="#ffffff" />
+  <polygon points="53,99 63,102 63,117 53,113" fill="#ffffff" />
+  <line x1="58" y1="100.5" x2="58" y2="115" stroke="#38bdf8" stroke-width="1.2" />
+  <polygon points="67,103 74,105 74,117 67,115" fill="#ffffff" />
+
+  <!-- Ventanas Fachada Derecha -->
+  <polygon points="84,49 94,45 94,60 84,63" fill="#ffffff" />
+  <polygon points="101,43 111,39 111,53 101,57" fill="#ffffff" />
+  <polygon points="84,70 94,66 94,80 84,84" fill="#ffffff" />
+  <polygon points="101,63 111,59 111,73 101,77" fill="#ffffff" />
+  <polygon points="78,97 122,84 122,86 78,99" fill="#0369a1" opacity="0.7" />
+  <polygon points="84,91 94,87 94,107 84,111" fill="#ffffff" />
+  <polygon points="101,84 111,80 111,100 101,104" fill="#ffffff" />
+</svg>

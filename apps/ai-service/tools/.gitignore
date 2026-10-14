@@ -1,0 +1,3 @@
+# Salidas de medición del evaluador (planos sintéticos). No se versionan.
+_output/
+__pycache__/

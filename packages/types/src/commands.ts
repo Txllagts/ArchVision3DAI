@@ -132,6 +132,30 @@ export interface AddFurnitureCommand extends CommandBase {
   rotationY?: number;
 }
 
+export interface CreateImportedModelCommand extends CommandBase {
+  type: "CREATE_IMPORTED_MODEL";
+  floorId: EntityId;
+  fileId: EntityId;
+  name: string;
+  url: string;
+  position?: Vector3;
+  rotation?: Vector3;
+  scale?: Vector3;
+}
+
+export interface UpdateImportedModelCommand extends CommandBase {
+  type: "UPDATE_IMPORTED_MODEL";
+  modelId: EntityId;
+  patch: Partial<{
+    position: Vector3;
+    rotation: Vector3;
+    scale: Vector3;
+    name: string;
+    visible: boolean;
+    locked: boolean;
+  }>;
+}
+
 export interface AssignMaterialCommand extends CommandBase {
   type: "ASSIGN_MATERIAL";
   targetIds: EntityId[];
@@ -233,6 +257,8 @@ export type SceneCommand =
   | CreateColumnCommand
   | CreateStairCommand
   | AddFurnitureCommand
+  | CreateImportedModelCommand
+  | UpdateImportedModelCommand
   | AssignMaterialCommand
   | CreateMaterialCommand
   | UpdateMaterialCommand

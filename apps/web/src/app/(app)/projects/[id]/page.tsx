@@ -45,7 +45,7 @@ export default async function ProjectDetailPage({
     ["Ubicacion", project.location ?? "sin definir"],
     ["Altura de piso", formatLength(project.floorHeight, unit)],
     ["Plantas", String(project.floorsCount)],
-    ["Tamano", formatBytes(project.sizeBytes)],
+    ["Tamaño", formatBytes(project.sizeBytes)],
     ["Revision de escena", sceneResult ? `#${sceneResult.revision}` : "-"],
     ["Actualizado", formatRelativeDate(project.updatedAt)],
   ] as const;

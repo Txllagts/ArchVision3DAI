@@ -29,8 +29,8 @@ export const brand: BrandConfig = {
   shortName: "ArchVision",
   tagline: "Convierte imagenes y planos en modelos 3D editables.",
   subtitle:
-    "Disena, reconstruye y visualiza viviendas con inteligencia artificial desde tu navegador.",
-  company: "ArchVision Labs",
+    "Diseña, reconstruye y visualiza viviendas con inteligencia artificial desde tu navegador.",
+  company: "ArchVision 3D AI",
   supportEmail: "soporte@archvision.app",
   foundedYear: 2026,
 };

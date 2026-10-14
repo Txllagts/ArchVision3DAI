@@ -10,6 +10,7 @@ import {
 } from "@archvision/shared";
 import type {
   CreationMethod,
+  ImportedModel,
   ProjectDetail,
   ProjectStatus,
   ProjectSummary,
@@ -18,7 +19,14 @@ import type {
   UnitSystem,
 } from "@archvision/types";
 import { planLimits, withinLimit } from "@archvision/config";
-import type { CreateProjectInput, UpdateProjectInput } from "@archvision/validation";
+import {
+  ENTITY_NAME_MAX,
+  type CreateProjectInput,
+  type UpdateProjectInput,
+} from "@archvision/validation";
+import { storage, buildStorageKey, checksumOf } from "@/lib/storage";
+import { sniff, type SniffResult } from "@/lib/storage/sniff";
+import { FILE_KINDS, type FileKind, saveProjectFile } from "./file-service";
 
 /**
  * Capa de servicio de proyectos.
@@ -227,6 +235,106 @@ export async function createProject(
   });
 
   return toDetail(project);
+}
+
+export async function createProjectWithFile(
+  context: CreateProjectContext,
+  input: CreateProjectInput & { demo?: boolean },
+  file: File,
+  fileKind: "floorplan" | "model",
+): Promise<ProjectDetail> {
+  // Step 1: Create the project without the file
+  const project = await createProject(context, input);
+
+  // Step 2: Upload the file to the newly created project
+  const fileData = new Uint8Array(await file.arrayBuffer());
+  const savedFile = await saveProjectFile(context.userId, project.id, {
+    kind: fileKind,
+    originalName: file.name,
+    declaredMime: file.type,
+    data: fileData,
+    plan: context.plan,
+  });
+
+  if (!savedFile) {
+    throw new Error("No se pudo guardar el archivo");
+  }
+
+  // Step 3: Update the scene with the imported model or underlay
+  const projectWithScene = await prisma.project.findUnique({
+    where: { id: project.id },
+    include: { scene: true },
+  });
+
+  if (!projectWithScene?.scene) {
+    throw new Error("No se encontro la escena del proyecto");
+  }
+
+  const scene: SceneDocument = JSON.parse(projectWithScene.scene.dataJson);
+  const activeFloorId = scene.floors[0]?.id ?? null;
+
+  if (fileKind === "model" && activeFloorId) {
+    const model: ImportedModel = {
+      id: `model_${savedFile.id}`,
+      floorId: activeFloorId,
+      // El nombre del archivo se guarda recortado a 200 caracteres; el
+      // documento de escena admite menos, y un nombre mas largo invalidaria
+      // la escena entera al validarla antes de guardar.
+      name: savedFile.originalName.trim().slice(0, ENTITY_NAME_MAX) || "Modelo importado",
+      fileId: savedFile.id,
+      url: `/api/projects/${project.id}/files/${savedFile.id}/content`,
+      position: { x: 0, y: 0, z: 0 },
+      rotation: { x: 0, y: 0, z: 0 },
+      scale: { x: 1, y: 1, z: 1 },
+      visible: true,
+      locked: false,
+      source: "import",
+    };
+    scene.importedModels = [...(scene.importedModels ?? []), model];
+  }
+
+  if (fileKind === "floorplan" && savedFile.width && savedFile.height && activeFloorId) {
+    scene.underlay = {
+      fileId: savedFile.id,
+      pixelsPerMeter: 50,
+      offset: { x: 0, y: 0 },
+      rotationDeg: 0,
+      opacity: 0.55,
+      visible: true,
+      width: savedFile.width,
+      height: savedFile.height,
+      floorId: activeFloorId,
+    };
+  }
+
+  // Step 4: Save the updated scene
+  const metrics = computeSceneMetrics(scene);
+  const dataJson = JSON.stringify(scene);
+
+  await prisma.project.update({
+    where: { id: project.id },
+    data: {
+      scene: {
+        update: { dataJson, schemaVersion: scene.version },
+      },
+      sizeBytes: Buffer.byteLength(dataJson, "utf8"),
+      floorsCount: scene.floors.length,
+      areaEstimate:
+        input.areaEstimate ??
+        (metrics.usableArea > 0 ? Math.round(metrics.usableArea * 100) / 100 : null),
+    },
+  });
+
+  // Fetch the updated project to return complete details
+  const updatedProject = await prisma.project.findUnique({
+    where: { id: project.id },
+  });
+
+  if (!updatedProject) {
+    throw new Error("No se pudo recuperar el proyecto actualizado");
+  }
+
+  return toDetail(updatedProject);
 }
 
 export async function updateProject(

@@ -14,7 +14,7 @@ import {
 import { parseSceneCommand } from "@archvision/validation";
 import { loadScene } from "@/lib/projects/scene-service";
 import { getProject } from "@/lib/projects/service";
-import { askModel, isModelConfigured } from "./claude";
+import { askModel, isModelConfigured } from "./model";
 
 /**
  * Servicio del asistente.

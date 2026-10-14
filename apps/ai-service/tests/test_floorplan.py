@@ -1,4 +1,5 @@
 import io
+import math
 import unittest
 
 import ezdxf
@@ -17,6 +18,55 @@ from app.settings import Settings
 class FloorplanAnalysisTests(unittest.TestCase):
     def setUp(self) -> None:
         self.settings = Settings(_env_file=None)
+
+    @staticmethod
+    def _curved_dxf_bytes() -> bytes:
+        document = ezdxf.new("R2010")
+        document.header["$INSUNITS"] = 6
+        document.layers.new("A-WALL")
+        modelspace = document.modelspace()
+        modelspace.add_arc(
+            (0, 0), 5, 0, 270, dxfattribs={"layer": "A-WALL"}
+        )
+        modelspace.add_circle((10, 10), 2, dxfattribs={"layer": "A-WALL"})
+        modelspace.add_ellipse(
+            (20, 0), major_axis=(4, 0), ratio=0.5, dxfattribs={"layer": "A-WALL"}
+        )
+        modelspace.add_spline(
+            [(30, 0), (32, 3), (34, 0)], dxfattribs={"layer": "A-WALL"}
+        )
+        buffer = io.StringIO()
+        document.write(buffer)
+        return buffer.getvalue().encode("utf-8")
+
+    @staticmethod
+    def _diagonal_png_bytes() -> bytes:
+        image = Image.new("RGB", (400, 400), "white")
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((40, 40, 360, 360), outline="black", width=12)
+        draw.line((60, 340, 340, 60), fill="black", width=12)
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        return buffer.getvalue()
+
+    @staticmethod
+    def _bay_window_png_bytes() -> bytes:
+        image = Image.new("RGB", (400, 400), "white")
+        draw = ImageDraw.Draw(image)
+        draw.rectangle((40, 40, 360, 328), outline="black", width=12)
+        draw.arc((100, 200, 300, 380), start=25, end=155, fill="black", width=12)
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        return buffer.getvalue()
+
+    @staticmethod
+    def _circular_wall_png_bytes() -> bytes:
+        image = Image.new("RGB", (400, 400), "white")
+        draw = ImageDraw.Draw(image)
+        draw.ellipse((80, 80, 320, 320), outline="black", width=12)
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        return buffer.getvalue()
 
     @staticmethod
     def _dxf_bytes() -> bytes:
@@ -252,6 +302,135 @@ class FloorplanAnalysisTests(unittest.TestCase):
                 for center in centers
             )
         )
+
+    def test_extracts_cad_arcs_circles_ellipses_and_splines(self) -> None:
+        result = analyze_floorplan(
+            "curved.dxf", self._curved_dxf_bytes(), self.settings
+        )
+
+        self.assertEqual(result["source"]["kind"], "cad")
+        self.assertEqual(result["statistics"]["entity_count"], 4)
+        self.assertEqual(
+            result["statistics"]["wall_candidate_count"], 4
+        )
+        for entity in result["entities"]:
+            self.assertEqual(entity["type"], "polyline")
+            self.assertGreaterEqual(len(entity["points"]), 3)
+        bounds = result["bounds"]
+        self.assertLessEqual(bounds["min"][0], -4.99)
+        self.assertGreaterEqual(bounds["max"][0], 34.0)
+
+    def test_detects_diagonal_raster_wall(self) -> None:
+        result = analyze_floorplan(
+            "diagonal.png", self._diagonal_png_bytes(), self.settings
+        )
+        segments = [
+            (entity["points"][0], entity["points"][1])
+            for entity in result["entities"]
+            if entity["type"] == "line"
+        ]
+        diagonal = [
+            (start, end)
+            for start, end in segments
+            if abs(end[0] - start[0]) > 40
+            and abs(end[1] - start[1]) > 40
+        ]
+        self.assertTrue(diagonal)
+
+    def test_detects_bay_window_curve_without_flattening(self) -> None:
+        result = analyze_floorplan(
+            "bay-window.png",
+            self._bay_window_png_bytes(),
+            self.settings,
+        )
+        curves = [
+            entity
+            for entity in result["entities"]
+            if entity["type"] == "polyline"
+        ]
+        self.assertTrue(curves)
+        curve = max(curves, key=lambda entity: len(entity["points"]))
+        self.assertGreaterEqual(len(curve["points"]), 3)
+        points = curve["points"]
+        chord = math.hypot(
+            points[-1][0] - points[0][0], points[-1][1] - points[0][1]
+        )
+        farthest = max(
+            math.dist(point, points[0]) for point in points
+        )
+        # La curva se aparta sensiblemente de su cuerda:
+        # no fue aplastada a un bloque recto.
+        self.assertGreater(farthest, chord * 0.2)
+
+    def test_detects_circular_wall_as_closed_ring(self) -> None:
+        result = analyze_floorplan(
+            "circular-wall.png",
+            self._circular_wall_png_bytes(),
+            self.settings,
+        )
+        rings = [
+            entity
+            for entity in result["entities"]
+            if entity["type"] == "polyline" and entity["closed"]
+        ]
+        self.assertTrue(rings)
+        ring = rings[0]
+        self.assertGreaterEqual(len(ring["points"]), 12)
+        first, last = ring["points"][0], ring["points"][-1]
+        self.assertLessEqual(math.dist(first, last), 20.0)
+
+    def test_extrudes_closed_polyline_as_single_fused_solid(self) -> None:
+        document = ezdxf.new("R2010")
+        document.header["$INSUNITS"] = 6
+        document.layers.new("A-WALL")
+        document.modelspace().add_lwpolyline(
+            [(0, 0), (5, 0), (5, 4), (0, 4)],
+            close=True,
+            dxfattribs={"layer": "A-WALL"},
+        )
+        buffer = io.StringIO()
+        document.write(buffer)
+
+        geometry = analyze_floorplan(
+            "closed-loop.dxf",
+            buffer.getvalue().encode("utf-8"),
+            self.settings,
+        )
+        glb = extrude_floorplan_to_3d(geometry)
+        mesh = trimesh.load(io.BytesIO(glb), file_type="glb", force="mesh")
+
+        self.assertTrue(mesh.is_watertight)
+        self.assertEqual(len(mesh.split(only_watertight=False)), 1)
+        self.assertAlmostEqual(float(mesh.bounds[1][1]), 2.6, places=5)
+
+    def test_extrudes_curved_polyline_as_connected_solid(self) -> None:
+        points = [
+            [
+                3.0 + 2.0 * math.cos(math.pi * index / 32),
+                2.0 * math.sin(math.pi * index / 32),
+            ]
+            for index in range(33)
+        ]
+        document = ezdxf.new("R2010")
+        document.header["$INSUNITS"] = 6
+        document.layers.new("A-WALL")
+        document.modelspace().add_lwpolyline(
+            points, dxfattribs={"layer": "A-WALL"}
+        )
+        buffer = io.StringIO()
+        document.write(buffer)
+
+        geometry = analyze_floorplan(
+            "curved-wall.dxf",
+            buffer.getvalue().encode("utf-8"),
+            self.settings,
+        )
+        glb = extrude_floorplan_to_3d(geometry)
+        mesh = trimesh.load(io.BytesIO(glb), file_type="glb", force="mesh")
+
+        self.assertTrue(mesh.is_watertight)
+        self.assertEqual(len(mesh.split(only_watertight=False)), 1)
+        self.assertAlmostEqual(float(mesh.bounds[1][1]), 2.6, places=5)
 
 
 if __name__ == "__main__":

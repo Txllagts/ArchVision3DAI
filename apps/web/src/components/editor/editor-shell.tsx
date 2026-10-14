@@ -1,7 +1,7 @@
 "use client";
 
 import dynamic from "next/dynamic";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import {
   FURNITURE_CATALOG,
@@ -17,6 +17,8 @@ import { Outliner } from "./outliner";
 import { Inspector } from "./inspector";
 import { EditorStatusBar } from "./status-bar";
 import { CommandPalette } from "./command-palette";
+import { ExportModal } from "./export-modal";
+import { ConflictModal } from "./conflict-modal";
 import { MaterialsPanel } from "./materials-panel";
 import { PlanImportPanel } from "./plan-import-panel";
 import { AssistantPanel } from "./assistant-panel";
@@ -65,7 +67,7 @@ function OnboardingCard() {
   if (!visible || assistantOpen) return null;
 
   return (
-    <div className="absolute right-4 top-4 z-20 w-72 rounded-panel border border-line bg-surface/95 p-4 shadow-xl backdrop-blur">
+    <div className="absolute right-4 top-4 z-40 w-72 rounded-panel border border-line bg-surface/95 p-4 shadow-xl backdrop-blur">
       <div className="flex items-start justify-between gap-2">
         <h2 className="text-xs font-semibold text-ink">Primeros pasos</h2>
         <button
@@ -109,7 +111,7 @@ function FurniturePicker() {
   if (tool !== "furniture") return null;
 
   return (
-    <div className="absolute left-4 top-4 z-20 max-h-72 w-56 overflow-y-auto rounded-panel border border-line bg-surface/95 p-2 shadow-xl backdrop-blur">
+    <div className="absolute left-4 top-4 z-30 max-h-72 w-56 overflow-y-auto rounded-panel border border-line bg-surface/95 p-2 shadow-xl backdrop-blur">
       <p className="px-1 pb-2 text-[10px] font-semibold uppercase tracking-wider text-ink-subtle">
         Biblioteca de mobiliario
       </p>
@@ -179,10 +181,13 @@ export function EditorShell({
   const initialize = useEditorStore((state) => state.initialize);
   const viewMode = useEditorStore((state) => state.viewMode);
   const { saveNow } = useAutosave();
+  const initializedProjectId = useRef<string | null>(null);
 
   useEditorShortcuts({ onSave: () => void saveNow() });
 
   useEffect(() => {
+    if (initializedProjectId.current === project.id) return;
+    initializedProjectId.current = project.id;
     initialize({
       projectId: project.id,
       projectName: project.name,
@@ -247,6 +252,8 @@ export function EditorShell({
 
       <EditorStatusBar />
       <CommandPalette onSave={() => void saveNow()} />
+      <ExportModal />
+      <ConflictModal />
     </div>
   );
 }

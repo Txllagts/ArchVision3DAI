@@ -37,7 +37,7 @@ export interface IntentInput {
 
 /** Verbos que convierten una frase en una orden y no en una pregunta. */
 const CREATE_VERB =
-  /\b(crea|crear|creame|haz|hacer|hazme|anade|anadir|agrega|agregar|pon|poner|ponme|coloca|colocar|dibuja|dibujar|levanta|mete|quiero|necesito|nueva|nuevo)\b/;
+  /\b(crea|crear|creame|haz|hacer|hazme|anade|anadir|añade|añadir|agrega|agregar|pon|poner|ponme|coloca|colocar|dibuja|dibujar|levanta|mete|quiero|necesito|nueva|nuevo)\b/;
 
 function toNumber(raw: string): number {
   return Number(raw.replace(",", "."));
@@ -97,7 +97,7 @@ type Handler = (input: IntentInput, text: string) => BuildResult | null;
 
 const room: Handler = (input, text) => {
   const isRoom =
-    /\b(habitacion|cuarto|recinto|sala|dormitorio|alcoba|cocina|bano|oficina|estudio|rectangulo)\b/.test(
+    /\b(habitacion|habitación|cuarto|recinto|sala|dormitorio|alcoba|cocina|bano|baño|oficina|estudio|rectangulo|rectángulo)\b/.test(
       text,
     );
   if (!isRoom || !CREATE_VERB.test(text)) return null;

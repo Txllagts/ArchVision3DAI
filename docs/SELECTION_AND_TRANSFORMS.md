@@ -10,7 +10,7 @@ Esta guia explica el flujo implementado para seleccionar objetos y girarlos en l
 | `packages/shared/src/command-reducer.ts` | Aplica traslacion, giro y escala al documento inmutable; vuelve a calcular habitaciones afectadas. |
 | `packages/types/src/entities.ts` | Contrato persistible de las entidades; `Roof` incluye pose de planta opcional. |
 | `packages/geometry/src/roof.ts` | Construye geometria de techo centrada en coordenadas locales; el giro no cambia sus dimensiones. |
-| `apps/web/src/components/editor/viewport-2d.tsx` | Marquee 2D en coordenadas de planta y arrastre de muro seleccionado. |
+| `apps/web/src/components/editor/viewport-2d.tsx` | Marquee 2D en coordenadas de planta y arrastre de entidades seleccionadas (muro, mobiliario, huella de modelo; el vano arrastrado expande a su muro anfitrion). |
 | `apps/web/src/components/editor/viewport-3d.tsx` | Marquee por frustum, plano de trabajo, arrastre de objetos, orbita central y preview de transformaciones. |
 | `apps/web/src/components/editor/scene-objects.tsx` | Mallas, picking y pose Three.js de entidades. |
 | `apps/web/src/components/editor/inspector.tsx` | Angulo incremental compartido, botones de giro y propiedades. |

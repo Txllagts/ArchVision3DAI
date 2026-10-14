@@ -135,7 +135,7 @@ export function PlanCards({
                         {price?.amountCents === 0
                           ? "Para siempre"
                           : interval === "year"
-                            ? "al ano, IVA incluido"
+                            ? "al año, IVA incluido"
                             : "al mes, IVA incluido"}
                       </p>
                       {saving > 0 ? (

@@ -59,15 +59,48 @@ describe("migracion de escenas", () => {
     };
     expect(scene.materials[0]?.texture).toBe("brick");
   });
-
   it("deja pasar un documento de version desconocida para que lo rechace el validador", () => {
     const future = { version: "9.9" };
+
     const result = migrateScene(future);
+
     expect(result.migrated).toBe(false);
     expect(result.scene).toBe(future);
   });
-});
 
+  it("lleva una escena 1.2 a la version actual añadiendo los modelos importados", () => {
+    const legacy = {
+      version: "1.2",
+      materials: [],
+      walls: [],
+      underlay: null,
+    };
+
+    const result = migrateScene(legacy);
+
+    expect(result.migrated).toBe(true);
+    expect(result.from).toBe("1.2");
+    const scene = result.scene as {
+      version: string;
+      importedModels: unknown;
+    };
+    // Sin este paso, una escena guardada antes de los modelos importados se
+    // quedaba en 1.2 y no superaba la validacion: el proyecto no abria.
+    expect(scene.version).toBe(SCENE_SCHEMA_VERSION);
+    expect(scene.importedModels).toEqual([]);
+  });
+
+  it("no toca los modelos importados que la escena ya traia", () => {
+    const model = { id: "im_1", name: "silla.glb" };
+
+    const scene = migrateScene({
+      version: "1.2",
+      importedModels: [model],
+    }).scene as { importedModels: unknown[] };
+
+    expect(scene.importedModels).toEqual([model]);
+  });
+});
 describe("comandos de material", () => {
   it("crea un material propio con id generado", () => {
     const scene = baseScene();
