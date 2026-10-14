@@ -16,6 +16,15 @@ import numpy as np
 from PIL import Image, ImageOps
 
 from app.services.input_preprocessor import convert_dwg_to_dxf
+from app.services.plan_preprocess import (
+    MIN_DESKEW_ANGLE,
+    SKEW_CONFIDENCE_THRESHOLD,
+    estimate_skew,
+    flatten_illumination,
+    map_entities_to_original,
+    rotate_with_matrix,
+    trim_canvas,
+)
 from app.settings import Settings
 
 SUPPORTED_EXTENSIONS = {".pdf", ".dwg", ".dxf", ".png", ".webp", ".jpg", ".jpeg"}
@@ -24,6 +33,14 @@ MAX_RASTER_ENTITIES = 5_000
 MAX_GEOMETRY_POINTS = 200_000
 MAX_IMAGE_SIDE = 2_048
 MAX_IMAGE_PIXELS = 4_000_000
+
+# Orientaciones de la pasada direccional. Se probó con 12 ángulos (0..165 cada
+# 15°) para cubrir cualquier orientación, pero rompió
+# test_raster_keeps_full_orthogonal_walls_and_filters_small_marks: en las
+# esquinas de muros gruesos aparecen diagonales falsas que la fusión no une.
+# Además costaba ~2.5x de tiempo. Se vuelve a los 4 ángulos originales.
+DIRECTIONAL_ANGLES: tuple[float, ...] = (0, 45, 90, 135)
+
 WALL_LAYER_PATTERN = re.compile(r"(wall|walls|muro|muros|pared|paredes|partition)", re.IGNORECASE)
 DOOR_LAYER_PATTERN = re.compile(r"(door|doors|puerta|puertas)", re.IGNORECASE)
 WINDOW_LAYER_PATTERN = re.compile(r"(window|windows|ventana|ventanas)", re.IGNORECASE)
@@ -737,7 +754,7 @@ def _raster_geometry(image: Image.Image) -> list[dict[str, Any]]:
     directional_segments: list[
         tuple[np.ndarray, np.ndarray, np.ndarray]
     ] = []
-    for angle in (0, 45, 90, 135):
+    for angle in DIRECTIONAL_ANGLES:
         mask = cv2.morphologyEx(
             working, cv2.MORPH_OPEN, _rotated_kernel(kernel_length, line_thickness, angle)
         )
@@ -849,7 +866,12 @@ def _parse_cad_upload(
 
 
 def analyze_floorplan(
-    filename: str, data: bytes, settings: Settings
+    filename: str,
+    data: bytes,
+    settings: Settings,
+    *,
+    preprocess: bool = False,
+    deskew: bool = False,
 ) -> dict[str, Any]:
     extension = Path(filename).suffix.lower()
     if extension not in SUPPORTED_EXTENSIONS:
@@ -869,11 +891,25 @@ def analyze_floorplan(
         image_size = None
     else:
         image = _read_raster(extension, data)
+        if preprocess:
+            image = flatten_illumination(image)
+        # El tamaño de la imagen es el de la original, antes de cualquier rotación.
+        image_size = {"width": image.width, "height": image.height}
+        deskew_matrix: np.ndarray | None = None
+        if deskew:
+            angle, confidence = estimate_skew(image)
+            if confidence >= SKEW_CONFIDENCE_THRESHOLD and abs(angle) >= MIN_DESKEW_ANGLE:
+                image, deskew_matrix = rotate_with_matrix(image, angle)
+                # La rotación amplía el lienzo; se recorta el borde blanco para
+                # que los umbrales relativos del detector no filtren muros finos.
+                image, deskew_matrix = trim_canvas(image, deskew_matrix)
         entities = _raster_geometry(image)
+        if deskew_matrix is not None:
+            # Devuelve los puntos al espacio original antes de bounds/statistics.
+            entities = map_entities_to_original(entities, deskew_matrix)
         units = "pixels"
         coordinate_system = "image_pixels_top_left_origin"
         source_kind = "raster"
-        image_size = {"width": image.width, "height": image.height}
 
     return {
         "format_version": "1.0",
