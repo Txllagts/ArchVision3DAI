@@ -186,7 +186,7 @@ export function PlanImportPanel() {
   const acceptedCount = proposal?.filter((wall) => wall.accepted).length ?? 0;
 
   return (
-    <div className="absolute right-4 top-4 z-20 flex max-h-[calc(100%-2rem)] w-80 flex-col overflow-y-auto rounded-panel border border-line bg-surface/95 shadow-xl backdrop-blur">
+    <div className="absolute right-4 top-4 z-30 flex max-h-[calc(100%-2rem)] w-80 flex-col overflow-y-auto rounded-panel border border-line bg-surface/95 shadow-xl backdrop-blur">
       <div className="flex items-center justify-between border-b border-line px-3 py-2">
         <h2 className="text-xs font-semibold text-ink">Importar plano</h2>
         <button

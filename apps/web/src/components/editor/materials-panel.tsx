@@ -127,7 +127,7 @@ export function MaterialsPanel() {
   if (!open) return null;
 
   return (
-    <div className="absolute left-4 top-4 z-20 flex max-h-[calc(100%-2rem)] w-72 flex-col rounded-panel border border-line bg-surface/95 shadow-xl backdrop-blur">
+    <div className="absolute left-4 top-4 z-30 flex max-h-[calc(100%-2rem)] w-72 flex-col rounded-panel border border-line bg-surface/95 shadow-xl backdrop-blur">
       <div className="flex items-center justify-between border-b border-line px-3 py-2">
         <h2 className="text-xs font-semibold text-ink">Materiales</h2>
         <button

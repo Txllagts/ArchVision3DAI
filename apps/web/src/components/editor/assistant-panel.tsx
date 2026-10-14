@@ -286,7 +286,7 @@ export function AssistantPanel({ onSave }: { onSave: () => Promise<boolean> | vo
   };
 
   return (
-    <aside className="absolute bottom-4 right-4 top-4 z-20 flex w-96 flex-col rounded-panel border border-line bg-surface/95 shadow-xl backdrop-blur">
+    <aside className="absolute bottom-4 right-4 top-4 z-30 flex w-96 flex-col rounded-panel border border-line bg-surface/95 shadow-xl backdrop-blur">
       <header className="flex items-center justify-between border-b border-line px-3 py-2">
         <h2 className="flex items-center gap-1.5 text-xs font-semibold text-ink">
           <Sparkles className="size-3.5 text-accent" aria-hidden />
