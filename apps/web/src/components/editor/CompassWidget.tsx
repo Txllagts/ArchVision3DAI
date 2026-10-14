@@ -33,7 +33,7 @@ export function CompassWidget() {
       aria-label="Volver al norte"
       // Posición relativa al <main> del visor 3D.
       // Si el layout cambia, revisar offset.
-      className="absolute right-4 top-4 z-50 grid place-items-center rounded-full opacity-[0.85] shadow-md transition-opacity duration-150 hover:opacity-100"
+      className="absolute right-4 top-4 z-20 grid place-items-center rounded-full opacity-[0.85] shadow-md transition-opacity duration-150 hover:opacity-100"
       style={{ width: SIZE, height: SIZE, backgroundColor: "#1a1a2e" }}
     >
       <span

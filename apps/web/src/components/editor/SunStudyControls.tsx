@@ -15,7 +15,7 @@ export function SunStudyControls() {
   if (!open) return null;
 
   return (
-    <div className="absolute bottom-4 left-4 z-20 w-72 rounded-panel border border-line bg-surface/95 p-4 shadow-xl backdrop-blur">
+    <div className="absolute bottom-4 left-4 z-30 w-72 rounded-panel border border-line bg-surface/95 p-4 shadow-xl backdrop-blur">
       <div className="flex items-center justify-between gap-2">
         <h2 className="text-xs font-semibold text-ink">Estudio solar</h2>
         <button
