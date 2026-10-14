@@ -66,7 +66,8 @@ import {
  * los addons de Three.js.
  */
 interface OrbitControlsLike {
-  target: { x: number; y: number; z: number; set: (x: number, y: number, z: number) => void };
+  target: ThreeVector3;
+  enabled?: boolean;
   update: () => void;
 }
 
@@ -91,6 +92,14 @@ function CameraRig({ bounds }: { bounds: ReturnType<typeof computeSceneBounds> }
   );
 
   const framed = useRef(false);
+
+  // Destino de la animacion de camara. `null` = sin transicion activa, de modo
+  // que el useFrame de abajo no cuesta nada cuando no hay animacion.
+  const targetPose = useRef<CameraPose | null>(null);
+  const destination = useRef(new ThreeVector3());
+  const destinationTarget = useRef(new ThreeVector3());
+  // lerp factor: ajustar entre 0.05 y 0.15
+  const LERP_FACTOR = 0.08;
 
   // El encuadre inicial se aplica dentro del bucle de render: es el unico
   // punto donde la camara activa y los controles existen con seguridad,
@@ -126,18 +135,52 @@ function CameraRig({ bounds }: { bounds: ReturnType<typeof computeSceneBounds> }
     };
 
     const pose =
-      pendingView === "fit" ? fitPose(bounds, current) : poseForView(pendingView, bounds);
+      pendingView === "fit"
+        ? fitPose(bounds, current)
+        : pendingView === "perspective"
+          ? {
+              position: { x: 14, y: 12, z: -16 },
+              target: { x: 0, y: 0, z: 0 },
+              orthographic: false,
+            }
+          : poseForView(pendingView, bounds);
 
-    camera.position.set(pose.position.x, pose.position.y, pose.position.z);
-    camera.lookAt(pose.target.x, pose.target.y, pose.target.z);
+    // La camara ya no salta: se guarda el destino y el useFrame interpola.
+    targetPose.current = pose;
+    destination.current.set(pose.position.x, pose.position.y, pose.position.z);
+    destinationTarget.current.set(pose.target.x, pose.target.y, pose.target.z);
 
+    // Deshabilita la orbita mientras dura la animacion.
+    if (controls) controls.enabled = false;
+  }, [pendingView, bounds, camera, controls]);
+
+  // Animacion suave hacia targetPose (early-return si no hay transicion).
+  useFrame(() => {
+    if (!targetPose.current) return;
+
+    camera.position.lerp(destination.current, LERP_FACTOR);
     if (controls) {
-      controls.target.set(pose.target.x, pose.target.y, pose.target.z);
+      controls.enabled = false;
+      controls.target.lerp(destinationTarget.current, LERP_FACTOR);
       controls.update();
+    } else {
+      camera.lookAt(destinationTarget.current);
     }
 
-    requestView(null);
-  }, [pendingView, camera, controls, bounds, requestView]);
+    if (camera.position.distanceTo(destination.current) < 0.01) {
+      camera.position.copy(destination.current);
+      if (controls) {
+        controls.target.copy(destinationTarget.current);
+        controls.update();
+        controls.enabled = true;
+      } else {
+        camera.lookAt(destinationTarget.current);
+      }
+      targetPose.current = null;
+      // Limpia pendingView del store al terminar la animacion.
+      requestView(null);
+    }
+  });
 
   return null;
 }
