@@ -26,6 +26,7 @@ __pycache__/
 *.pyc
 .venv/
 apps/ai-service/models/*.onnx*
+apps/ai-service/vendor/InstantMesh/
 
 # OS / editores
 .DS_Store

@@ -57,6 +57,32 @@ class InstantMeshPipelineTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "INSTANTMESH_REPO_DIR"):
             InstantMeshPipeline(Settings(_env_file=None))
 
+    def test_cross_platform_venv_python_resolution(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            repository = Path(directory) / "InstantMesh"
+            (repository / "configs").mkdir(parents=True)
+            (repository / "run.py").write_text("", encoding="utf-8")
+            (repository / "configs" / "instant-mesh-large.yaml").write_text("", encoding="utf-8")
+
+            venv_dir = Path(directory) / ".venv"
+            linux_bin = venv_dir / "bin" / "python"
+            linux_bin.parent.mkdir(parents=True)
+            linux_bin.write_text("", encoding="utf-8")
+
+            # Si un compañero pasa ruta estilo Windows (.venv/Scripts/python.exe) en Linux
+            # o pasa directamente la carpeta .venv, debe resolver al ejecutable existente.
+            for configured in (
+                venv_dir / "Scripts" / "python.exe",
+                venv_dir,
+            ):
+                settings = Settings(
+                    _env_file=None,
+                    instantmesh_repo_dir=repository,
+                    instantmesh_python=configured,
+                )
+                pipeline = InstantMeshPipeline(settings)
+                self.assertEqual(pipeline._python, linux_bin.absolute())
+
 
 if __name__ == "__main__":
     unittest.main()

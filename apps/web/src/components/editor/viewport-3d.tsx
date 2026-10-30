@@ -1333,6 +1333,7 @@ export function Viewport3D() {
   // Cambiar esta clave reconstruye el lienzo desde cero cuando el usuario pide
   // reintentar tras una perdida de contexto.
   const [canvasKey, setCanvasKey] = useState(0);
+  const viewportRef = useRef<HTMLDivElement>(null!);
 
   return (
     <>
@@ -1359,6 +1360,7 @@ export function Viewport3D() {
       ) : null}
 
     <div
+      ref={viewportRef}
       className="absolute inset-0"
       onContextMenu={(event) => event.preventDefault()}
       onDragOver={(event) => {
@@ -1416,7 +1418,9 @@ export function Viewport3D() {
       style={{ position: "absolute", inset: 0 }}
     >
       <SceneEnvironment preset="sunset" exposure={1.0} />
-      {process.env.NODE_ENV === "development" && <Stats />}
+      {process.env.NODE_ENV === "development" && (
+        <Stats parent={viewportRef} className="r3f-stats" />
+      )}
       <CompassSync />
       <RenderExporter />
       <OrbitControls

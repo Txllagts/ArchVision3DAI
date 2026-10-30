@@ -1,4 +1,5 @@
 import logging
+import os
 import subprocess
 import tempfile
 from pathlib import Path
@@ -11,14 +12,54 @@ from app.settings import Settings
 logger = logging.getLogger("archvision.ai.instantmesh")
 
 
+def _abspath_no_symlink(path: Path) -> Path:
+    """Convierte a ruta absoluta normalizando '..' sin resolver symlinks (clave para venv en Linux)."""
+    return Path(os.path.abspath(path.expanduser()))
+
+
+def _resolve_python_executable(configured_path: Path) -> Path:
+    """Resuelve el ejecutable de Python de forma compatible entre Windows y Linux.
+
+    Soporta:
+    - Ruta directa al binario (`.../bin/python` en Linux o `.../Scripts/python.exe` en Windows).
+    - Ruta al directorio raíz del entorno virtual (ej. `.venv`).
+    - Rutas cruzadas entre sistemas operativos (ej. `.venv/Scripts/python.exe` usado en Linux
+      o `.venv/bin/python` usado en Windows).
+    """
+    normalized_raw = str(configured_path).replace("\\", "/")
+    candidate = _abspath_no_symlink(Path(normalized_raw))
+    if candidate.is_file():
+        return candidate
+
+    venv_roots: list[Path] = []
+    if candidate.is_dir():
+        venv_roots.append(candidate)
+    if candidate.parent.name.lower() in {"scripts", "bin"}:
+        venv_roots.append(candidate.parent.parent)
+
+    rel_candidates = (
+        ("Scripts/python.exe", "Scripts/python", "bin/python", "bin/python3")
+        if os.name == "nt"
+        else ("bin/python", "bin/python3", "Scripts/python.exe", "Scripts/python")
+    )
+
+    for root in venv_roots:
+        for rel in rel_candidates:
+            option = _abspath_no_symlink(root / rel)
+            if option.is_file():
+                return option
+
+    return candidate
+
+
 class InstantMeshPipeline:
     def __init__(self, settings: Settings) -> None:
         if settings.instantmesh_repo_dir is None or settings.instantmesh_python is None:
             raise RuntimeError(
                 "Configura INSTANTMESH_REPO_DIR e INSTANTMESH_PYTHON para habilitar InstantMesh."
             )
-        self._repository = settings.instantmesh_repo_dir.resolve()
-        self._python = settings.instantmesh_python.resolve()
+        self._repository = settings.instantmesh_repo_dir.expanduser().resolve()
+        self._python = _resolve_python_executable(settings.instantmesh_python)
         self._config = (self._repository / settings.instantmesh_config).resolve()
         self._timeout = settings.instantmesh_timeout_seconds
         if not (self._repository / "run.py").is_file():
@@ -51,13 +92,17 @@ class InstantMeshPipeline:
                 "--view",
                 "6",
             ]
+            env = {**os.environ, "PYTHONIOENCODING": "utf-8"}
             try:
                 completed = subprocess.run(
                     command,
                     cwd=self._repository,
+                    env=env,
                     check=False,
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     timeout=self._timeout,
                 )
             except subprocess.TimeoutExpired as error:

@@ -176,6 +176,16 @@ h3 {
   scrollbar-color: var(--line-strong) transparent;
 }
 
+/* Monitor de rendimiento (stats.js) en la esquina inferior derecha del visor 3D */
+.r3f-stats {
+  position: absolute !important;
+  top: auto !important;
+  left: auto !important;
+  right: 0.75rem !important;
+  bottom: 0.75rem !important;
+  z-index: 20 !important;
+}
+
 /* ------------------------------------------------------------------ */
 /* Movimiento                                                          */
 /* ------------------------------------------------------------------ */
