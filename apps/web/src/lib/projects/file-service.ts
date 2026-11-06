@@ -215,10 +215,10 @@ export async function saveProjectFile(
   const storageKey = buildStorageKey(projectId, created.id, detected.extension);
 
   try {
-    await storage().put(storageKey, input.data);
+    await storage().put(storageKey, input.data, detected.mime);
   } catch (error) {
-    // Sin bytes en disco la fila no sirve de nada: se deshace para no dejar
-    // referencias rotas.
+    // Sin bytes en el almacenamiento la fila no sirve de nada: se deshace para
+    // no dejar referencias rotas.
     await prisma.projectFile.delete({ where: { id: created.id } });
     throw error;
   }
@@ -242,6 +242,7 @@ export async function readProjectFile(
   if (!file || !file.storageKey) return null;
 
   const data = await storage().get(file.storageKey);
+  if (!data) return null;
   return { data, mimeType: file.mimeType, originalName: file.originalName };
 }
 

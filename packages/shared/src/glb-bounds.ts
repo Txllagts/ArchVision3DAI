@@ -175,7 +175,10 @@ export async function loadGlbBounds(url: string): Promise<GlbBounds | null> {
   const task = (async () => {
     try {
       const response = await fetch(url, { credentials: "same-origin" });
-      if (!response.ok) return null;
+      if (!response.ok) {
+        boundsCache.set(url, null);
+        return null;
+      }
       const buffer = await response.arrayBuffer();
       const data = new Uint8Array(buffer);
       const bounds =
